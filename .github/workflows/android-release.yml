@@ -1,0 +1,59 @@
+name: Android APK Derle ve Otomatik Güncelleme Yayınla
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Proje Kodlarını İndir
+        uses: actions/checkout@v4
+
+      - name: JDK 17 Kurulumu
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Android SDK Kurulumu
+        uses: android-actions/setup-android@v3
+
+      - name: Gradle 8.5 Kurulumu
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.5'
+
+      - name: İmzalı APK Derle (Android 6+ Uyumlu)
+        run: |
+          gradle assembleRelease \
+            -PversionCode=${{ github.run_number }} \
+            -PversionName=1.0.${{ github.run_number }} \
+            -PgithubRepo=${{ github.repository }}
+
+      - name: APK Dosyasını GitHub Actions Arşivine Yükle
+        uses: actions/upload-artifact@v4
+        with:
+          name: CalismaZamanlayici-APK-v1.0.${{ github.run_number }}
+          path: app/build/outputs/apk/release/CalismaZamanlayici.apk
+
+      - name: GitHub Releases Üzerinde Yeni Sürüm Yayınla (Otomatik Cihaz Güncellemesi İçin)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: "Çalışma Zamanlayıcı v1.0.${{ github.run_number }} (Sürüm Kodu: ${{ 100 + github.run_number }})"
+          body: |
+            🌸 **İpek'in Çalışma Zamanlayıcı Uygulaması - Otomatik Güncelleme Paketi**
+            - **Sürüm:** `v1.0.${{ github.run_number }}`
+            - **Sürüm Kodu (versionCode):** `${{ 100 + github.run_number }}`
+            - **Minimum Android Sürümü:** Android 6.0 (API 23) ve üzeri
+            - Sabit imza (`ipek-release-key.jks`) ile imzalanmıştır; mevcut uygulamanın üzerine veriler silinmeden doğrudan güncellenir.
+          files: app/build/outputs/apk/release/CalismaZamanlayici.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
