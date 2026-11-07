@@ -33,30 +33,35 @@ jobs:
         with:
           gradle-version: '8.5'
 
-      - name: İmzalı APK Derle (Android 6+ Uyumlu Global Sürüm)
+      - name: Öğrenci ve Veli APK Dosyalarını Derle (Android 6+ Uyumlu)
         run: |
           gradle assembleRelease \
             -PversionCode=${{ github.run_number }} \
-            -PversionName=2.0.${{ github.run_number }} \
+            -PversionName=3.0.${{ github.run_number }} \
             -PgithubRepo=${{ github.repository }}
 
-      - name: APK Dosyasını GitHub Actions Arşivine Yükle
+      - name: APK Dosyalarını GitHub Actions Arşivine Yükle
         uses: actions/upload-artifact@v4
         with:
-          name: CalismaZamanlayici-APK-v2.0.${{ github.run_number }}
-          path: app/build/outputs/apk/release/CalismaZamanlayici.apk
+          name: CalismaZamanlayici-APKs-v3.0.${{ github.run_number }}
+          path: |
+            app/build/outputs/apk/release/CalismaZamanlayici.apk
+            veli/build/outputs/apk/release/CalismaZamanlayiciVeli.apk
 
-      - name: GitHub Releases Üzerinde Yeni Sürüm Yayınla
+      - name: GitHub Releases Üzerinde Her İki APK Sürümünü Yayınla
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v2.0.${{ github.run_number }}
-          name: "Çalışma Zamanlayıcı v2.0.${{ github.run_number }}"
+          tag_name: v3.0.${{ github.run_number }}
+          name: "Çalışma Zamanlayıcı & Veli Uygulaması v3.0.${{ github.run_number }}"
           body: |
-            🚀 **Çalışma Zamanlayıcı - Otomatik Güncelleme Paketi (Global Sürüm)**
-            - **Sürüm:** `v2.0.${{ github.run_number }}`
-            - **Yapı Numarası:** `${{ github.run_number }}`
+            🚀 **Çalışma Zamanlayıcı (Öğrenci) & Veli Takip Uygulaması - Otomatik Güncelleme Paketi**
+            - **Sürüm:** `v3.0.${{ github.run_number }}`
+            - **Öğrenci APK:** `CalismaZamanlayici.apk`
+            - **Veli APK:** `CalismaZamanlayiciVeli.apk`
             - **Minimum Android Sürümü:** Android 6.0 (API 23) ve üzeri
-            - Sabit imza (`release-key.jks`) ile imzalanmıştır; mevcut uygulamanın üzerine veriler silinmeden doğrudan güncellenir.
-          files: app/build/outputs/apk/release/CalismaZamanlayici.apk
+            - Sabit imza (`release-key.jks`) ile imzalanmıştır; her iki uygulama da kendi güncellemelerini GitHub üzerinden otomatik bulup verileri silmeden üzerine kurar.
+          files: |
+            app/build/outputs/apk/release/CalismaZamanlayici.apk
+            veli/build/outputs/apk/release/CalismaZamanlayiciVeli.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
