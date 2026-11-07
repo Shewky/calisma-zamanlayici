@@ -161,8 +161,11 @@ public class QrScannerActivity extends Activity implements SurfaceHolder.Callbac
         }
 
         // Karekoddaki Anne/Baba rolünü ve öğrenciyi kaydet
-        VeliStorage.saveParentRole(this, qrRole);
-        VeliStorage.upsertPairedChild(this, childId, userName, grade, ip, qrRole);
+        if (!VeliStorage.isOnboarded(this)) {
+            VeliStorage.saveParentRole(this, qrRole);
+        }
+        String activeParentRole = VeliStorage.getParentRole(this);
+        VeliStorage.upsertPairedChild(this, childId, userName, grade, ip, activeParentRole);
         ParentBackgroundService.registerParentWithChild(this, ip);
 
         // IP adresi değişmiş ihtimaline karşı arka planda IP taraması da başlat

@@ -14,9 +14,9 @@
 
         <!-- Çocuk Başlık ve Anlık Durum Kartı -->
         <LinearLayout
+            android:id="@+id/layoutDetailHeaderCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:id="@+id/layoutDetailHeaderCard"
             android:background="@drawable/bg_veli_header"
             android:orientation="vertical"
             android:padding="18dp"
@@ -53,7 +53,7 @@
                 android:textSize="14sp" />
         </LinearLayout>
 
-        <!-- Uzaktan Tebrik / Övgü Gönderme ve Doğrudan Arama Kartı -->
+        <!-- Uzaktan Tebrik / Övgü Gönderme ve Özelleştirilmiş Övgü Kartı -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -74,13 +74,13 @@
             <Button
                 android:id="@+id/btnSendRolePraise"
                 android:layout_width="match_parent"
-                android:layout_height="52dp"
+                android:layout_height="50dp"
                 android:layout_marginTop="10dp"
                 android:background="@drawable/btn_veli_orange"
-                android:text="🎉 'Annenden övgü aldın tebrikler' Gönder"
+                android:text="🎉 Övgü Gönder"
                 android:textAllCaps="false"
                 android:textColor="#FFFFFF"
-                android:textSize="15sp"
+                android:textSize="14sp"
                 android:textStyle="bold" />
 
             <Button
@@ -89,7 +89,41 @@
                 android:layout_height="50dp"
                 android:layout_marginTop="8dp"
                 android:background="@drawable/btn_veli_green"
-                android:text="🌟 'Aferin sana' Sesli Övgüsü Gönder"
+                android:text="🌟 Aferin Sana Övgüsü Gönder"
+                android:textAllCaps="false"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <!-- YENİ: Özelleştirilmiş Övgü / Mesaj Gönderme Alanı -->
+            <TextView
+                android:id="@+id/tvCustomPraiseLabel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:text="✍️ Özelleştirilmiş Övgü / Mesaj Yaz:"
+                android:textColor="@color/veli_text_dark"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <EditText
+                android:id="@+id/etCustomPraiseInput"
+                android:layout_width="match_parent"
+                android:layout_height="50dp"
+                android:layout_marginTop="6dp"
+                android:hint="Örn: Seninle gurur duyuyorum, harika çalışıyorsun!"
+                android:inputType="textCapSentences"
+                android:padding="10dp"
+                android:textColor="@color/veli_text_dark"
+                android:textSize="15sp" />
+
+            <Button
+                android:id="@+id/btnSendCustomPraise"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/btn_veli_orange"
+                android:text="🔊 Özelleştirilmiş Övgü Gönder"
                 android:textAllCaps="false"
                 android:textColor="#FFFFFF"
                 android:textSize="15sp"
@@ -99,7 +133,7 @@
                 android:id="@+id/btnDirectCallFromDetail"
                 android:layout_width="match_parent"
                 android:layout_height="52dp"
-                android:layout_marginTop="10dp"
+                android:layout_marginTop="12dp"
                 android:background="@drawable/btn_veli_blue"
                 android:text="📞 Şimdi Doğrudan Ara (Onaysız Görüşme Başlat)"
                 android:textAllCaps="false"

@@ -6,6 +6,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -24,8 +25,10 @@ import java.net.URL;
 import java.net.URLEncoder;
 
 /**
- * Veli uygulamasında çocuğun adına tıklandığında açılan detaylı takip ekranı.
- * Uzaktan tebrik/övgü gönderimi hem hızlı UDP hem de GET tabanlı HTTP ile anında ve hatasız iletilir.
+ * Veli uygulamasında çocuğun adına tıklandığında açılan detaylı takip ekranı:
+ * - Anne veya Baba rolünü dinamik ayırt ederek hazır övgüleri ("Annenden/Babandan övgü aldın tebrikler") gönderir.
+ * - "Özelleştirilmiş Övgü Gönder" özelliği ile klavyeden girilen mesajı
+ *   Anne ise "Annenden mesaj: ...", Baba ise "Babandan mesaj: ..." diyerek öğrenci cihazında sesli anons ettirir.
  */
 public class ChildDetailActivity extends Activity {
 
@@ -38,6 +41,12 @@ public class ChildDetailActivity extends Activity {
     private TextView tvDetailChildName;
     private TextView tvDetailLivePhase;
     private TextView tvDetailLiveTimers;
+    private TextView tvPraiseSectionTitle;
+    private TextView tvCustomPraiseLabel;
+    private EditText etCustomPraiseInput;
+    private Button btnSendRolePraise;
+    private Button btnSendAferinPraise;
+    private Button btnSendCustomPraise;
     private TextView tvDetailWeeklySummary;
     private LinearLayout layoutDetailBadges;
     private LinearLayout layoutDetailCalendarRecords;
@@ -70,12 +79,16 @@ public class ChildDetailActivity extends Activity {
         tvDetailChildName = findViewById(R.id.tvDetailChildName);
         tvDetailLivePhase = findViewById(R.id.tvDetailLivePhase);
         tvDetailLiveTimers = findViewById(R.id.tvDetailLiveTimers);
+        tvPraiseSectionTitle = findViewById(R.id.tvPraiseSectionTitle);
+        tvCustomPraiseLabel = findViewById(R.id.tvCustomPraiseLabel);
+        etCustomPraiseInput = findViewById(R.id.etCustomPraiseInput);
+        btnSendRolePraise = findViewById(R.id.btnSendRolePraise);
+        btnSendAferinPraise = findViewById(R.id.btnSendAferinPraise);
+        btnSendCustomPraise = findViewById(R.id.btnSendCustomPraise);
         tvDetailWeeklySummary = findViewById(R.id.tvDetailWeeklySummary);
         layoutDetailBadges = findViewById(R.id.layoutDetailBadges);
         layoutDetailCalendarRecords = findViewById(R.id.layoutDetailCalendarRecords);
 
-        Button btnSendRolePraise = findViewById(R.id.btnSendRolePraise);
-        Button btnSendAferinPraise = findViewById(R.id.btnSendAferinPraise);
         Button btnDirectCallFromDetail = findViewById(R.id.btnDirectCallFromDetail);
         Button btnBack = findViewById(R.id.btnBackFromDetail);
 
@@ -86,21 +99,42 @@ public class ChildDetailActivity extends Activity {
         }
         btnSendRolePraise.setBackground(VeliThemeHelper.createButtonDrawable(this, p.secondary));
         btnSendAferinPraise.setBackground(VeliThemeHelper.createButtonDrawable(this, p.accent));
-        btnDirectCallFromDetail.setBackground(VeliThemeHelper.createButtonDrawable(this, p.primary));
-        btnBack.setBackground(VeliThemeHelper.createButtonDrawable(this, p.primaryDark));
+        btnSendCustomPraise.setBackground(VeliThemeHelper.createButtonDrawable(this, p.primary));
+        btnDirectCallFromDetail.setBackground(VeliThemeHelper.createButtonDrawable(this, p.primaryDark));
+        btnBack.setBackground(VeliThemeHelper.createButtonDrawable(this, p.primary));
 
         tvDetailChildName.setText("👤 " + childName + " • Canlı Takip ve Takvim");
 
-        final String parentRole = VeliStorage.getParentRole(this);
-        final String rolePraiseText = "BABA".equalsIgnoreCase(parentRole)
-                ? "Babandan övgü aldın tebrikler"
-                : "Annenden övgü aldın tebrikler";
+        refreshRoleBasedPraiseLabels();
 
-        btnSendRolePraise.setText("🎉 '" + rolePraiseText + "' Gönder");
-        btnSendAferinPraise.setText("🌟 '" + rolePraiseText + "! Aferin sana!' Gönder");
+        btnSendRolePraise.setOnClickListener(v -> {
+            String role = VeliStorage.getParentRole(ChildDetailActivity.this);
+            String msg = "BABA".equalsIgnoreCase(role)
+                    ? "Babandan övgü aldın tebrikler"
+                    : "Annenden övgü aldın tebrikler";
+            sendPraiseToChild(role, msg);
+        });
 
-        btnSendRolePraise.setOnClickListener(v -> sendPraiseToChild(rolePraiseText));
-        btnSendAferinPraise.setOnClickListener(v -> sendPraiseToChild(rolePraiseText + "! Aferin sana!"));
+        btnSendAferinPraise.setOnClickListener(v -> {
+            String role = VeliStorage.getParentRole(ChildDetailActivity.this);
+            String msg = "BABA".equalsIgnoreCase(role)
+                    ? "Babandan övgü aldın tebrikler! Aferin sana!"
+                    : "Annenden övgü aldın tebrikler! Aferin sana!";
+            sendPraiseToChild(role, msg);
+        });
+
+        btnSendCustomPraise.setOnClickListener(v -> {
+            String typed = etCustomPraiseInput.getText().toString().trim();
+            if (typed.isEmpty()) {
+                Toast.makeText(ChildDetailActivity.this, "Lütfen göndermek istediğiniz övgü mesajını yazın ✍️", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            String role = VeliStorage.getParentRole(ChildDetailActivity.this);
+            String prefix = "BABA".equalsIgnoreCase(role) ? "Babandan mesaj: " : "Annenden mesaj: ";
+            String fullAnnouncement = prefix + typed;
+            sendPraiseToChild(role, fullAnnouncement);
+            etCustomPraiseInput.setText("");
+        });
 
         btnDirectCallFromDetail.setOnClickListener(v -> {
             Intent callIntent = new Intent(ChildDetailActivity.this, VeliCallActivity.class);
@@ -114,9 +148,27 @@ public class ChildDetailActivity extends Activity {
         btnBack.setOnClickListener(v -> finish());
     }
 
+    private void refreshRoleBasedPraiseLabels() {
+        String parentRole = VeliStorage.getParentRole(this);
+        boolean isBaba = "BABA".equalsIgnoreCase(parentRole);
+        String rolePraiseText = isBaba
+                ? "Babandan övgü aldın tebrikler"
+                : "Annenden övgü aldın tebrikler";
+        String roleTitle = isBaba ? "👨 Baba Olarak Sesli Övgü Gönder:" : "👩 Anne Olarak Sesli Övgü Gönder:";
+        String customPrefixInfo = isBaba
+                ? "✍️ Özelleştirilmiş Övgü Gönder ('Babandan mesaj:' diyerek başlar):"
+                : "✍️ Özelleştirilmiş Övgü Gönder ('Annenden mesaj:' diyerek başlar):";
+
+        tvPraiseSectionTitle.setText(roleTitle);
+        btnSendRolePraise.setText("🎉 '" + rolePraiseText + "' Gönder");
+        btnSendAferinPraise.setText("🌟 '" + rolePraiseText + "! Aferin sana!' Gönder");
+        tvCustomPraiseLabel.setText(customPrefixInfo);
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
+        refreshRoleBasedPraiseLabels();
         polling = true;
         uiHandler.removeCallbacks(detailPoller);
         uiHandler.post(detailPoller);
@@ -129,12 +181,7 @@ public class ChildDetailActivity extends Activity {
         super.onPause();
     }
 
-    /**
-     * Övgü mesajını hem hızlı UDP paketi olarak hem de GET parametresiyle gönderir.
-     * Bu sayede "unexpected end of stream" hatası oluşmaz ve anında sesli anons yapılır.
-     */
-    private void sendPraiseToChild(final String praiseSpeech) {
-        final String parentRole = VeliStorage.getParentRole(this);
+    private void sendPraiseToChild(final String parentRole, final String praiseSpeech) {
         for (VeliStorage.PairedChild c : VeliStorage.getPairedChildren(this)) {
             if (c.childId.equalsIgnoreCase(childId) && c.ipAddress != null && !c.ipAddress.isEmpty()) {
                 childIp = c.ipAddress;
@@ -147,7 +194,7 @@ public class ChildDetailActivity extends Activity {
             public void run() {
                 boolean sentOk = false;
 
-                // 1. Hızlı UDP paketi ile gönder (Hem doğrudan çocuk IP'sine hem de ağ yayınına)
+                // 1. Hızlı UDP paketi ile gönder
                 try {
                     String udpMsg = "CZ_PRAISE|" + parentRole + "|" + praiseSpeech;
                     byte[] udpBytes = udpMsg.getBytes("UTF-8");
@@ -164,7 +211,7 @@ public class ChildDetailActivity extends Activity {
                 } catch (Exception ignored) {
                 }
 
-                // 2. GET tabanlı temiz HTTP isteği ile gönder (Content-Length uyuşmazlığı yaşanmaz!)
+                // 2. GET tabanlı HTTP isteği ile gönder
                 if (childIp != null && !childIp.isEmpty()) {
                     try {
                         String q = "role=" + URLEncoder.encode(parentRole, "UTF-8")
@@ -190,7 +237,7 @@ public class ChildDetailActivity extends Activity {
                     public void run() {
                         if (finalSuccess) {
                             Toast.makeText(ChildDetailActivity.this,
-                                    "👏 Övgü mesajı gönderildi: '" + praiseSpeech + "'",
+                                    "🔊 Sesli anons gönderildi: '" + praiseSpeech + "'",
                                     Toast.LENGTH_LONG).show();
                         } else {
                             Toast.makeText(ChildDetailActivity.this,

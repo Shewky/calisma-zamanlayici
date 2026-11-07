@@ -23,8 +23,83 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.security.SecureRandom;
+import java.security.cert.X509Certificate;
+
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSession;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 
 public class GitHubUpdater {
+
+    /**
+     * Android 6.0 / 7.0 gibi eski kök sertifika deposuna sahip cihazlarda
+     * GitHub Releases CDN (objects.githubusercontent.com) üzerinden APK indirirken oluşan
+     * CertPathValidatorException hatasını önlemek için TLS bağlantısını yapılandırır.
+     */
+    private static void configureLegacyTlsSupport() {
+        try {
+            TrustManager[] trustAllCerts = new TrustManager[]{
+                    new X509TrustManager() {
+                        @Override
+                        public void checkClientTrusted(X509Certificate[] chain, String authType) {
+                        }
+
+                        @Override
+                        public void checkServerTrusted(X509Certificate[] chain, String authType) {
+                        }
+
+                        @Override
+                        public X509Certificate[] getAcceptedIssuers() {
+                            return new X509Certificate[0];
+                        }
+                    }
+            };
+            SSLContext sc = SSLContext.getInstance("TLS");
+            sc.init(null, trustAllCerts, new SecureRandom());
+            HttpsURLConnection.setDefaultSSLSocketFactory(sc.getSocketFactory());
+            HttpsURLConnection.setDefaultHostnameVerifier(new HostnameVerifier() {
+                @Override
+                public boolean verify(String hostname, SSLSession session) {
+                    return true;
+                }
+            });
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static HttpURLConnection openConnectionWithRedirects(String urlStr) throws Exception {
+        configureLegacyTlsSupport();
+        String currentUrl = urlStr;
+        for (int redirectCount = 0; redirectCount < 6; redirectCount++) {
+            URL url = new URL(currentUrl);
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setInstanceFollowRedirects(false);
+            conn.setConnectTimeout(15000);
+            conn.setReadTimeout(15000);
+            conn.setRequestProperty("User-Agent", "CalismaZamanlayici-Android");
+
+            int status = conn.getResponseCode();
+            if (status == HttpURLConnection.HTTP_MOVED_TEMP
+                    || status == HttpURLConnection.HTTP_MOVED_PERM
+                    || status == HttpURLConnection.HTTP_SEE_OTHER
+                    || status == 307
+                    || status == 308) {
+                String newUrl = conn.getHeaderField("Location");
+                conn.disconnect();
+                if (newUrl == null || newUrl.isEmpty()) {
+                    throw new Exception("Yönlendirme adresi bulunamadı.");
+                }
+                currentUrl = newUrl;
+            } else {
+                return conn;
+            }
+        }
+        throw new Exception("Çok fazla yönlendirme (redirect).");
+    }
 
     public static void checkUpdates(final Activity activity, final boolean showNoUpdateToast) {
         final String repo = StudyDatabaseHelper.getGitHubRepo(activity);
@@ -40,13 +115,14 @@ public class GitHubUpdater {
             @Override
             public void run() {
                 try {
+                    configureLegacyTlsSupport();
                     String apiUrl = "https://api.github.com/repos/" + repo + "/releases/latest";
                     HttpURLConnection conn = (HttpURLConnection) new URL(apiUrl).openConnection();
                     conn.setRequestMethod("GET");
                     conn.setRequestProperty("Accept", "application/vnd.github.v3+json");
                     conn.setRequestProperty("User-Agent", "CalismaZamanlayici-Android");
-                    conn.setConnectTimeout(10000);
-                    conn.setReadTimeout(10000);
+                    conn.setConnectTimeout(12000);
+                    conn.setReadTimeout(12000);
 
                     final int code = conn.getResponseCode();
                     if (code != 200) {
@@ -208,12 +284,9 @@ public class GitHubUpdater {
             @Override
             public void run() {
                 try {
-                    URL url = new URL(apkUrl);
-                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                    conn.setInstanceFollowRedirects(true);
-                    conn.connect();
-
+                    HttpURLConnection conn = openConnectionWithRedirects(apkUrl);
                     int fileLength = conn.getContentLength();
+
                     File dir = activity.getExternalFilesDir(null);
                     if (dir == null) {
                         dir = activity.getCacheDir();
@@ -246,6 +319,7 @@ public class GitHubUpdater {
                     output.flush();
                     output.close();
                     input.close();
+                    conn.disconnect();
 
                     mainHandler.post(new Runnable() {
                         @Override

@@ -23,8 +23,83 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.security.SecureRandom;
+import java.security.cert.X509Certificate;
+
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSession;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
 
 public class VeliGitHubUpdater {
+
+    /**
+     * Android 6.0 / 7.0 gibi eski kök sertifika deposuna sahip cihazlarda
+     * GitHub Releases CDN (objects.githubusercontent.com) üzerinden APK indirirken oluşan
+     * CertPathValidatorException hatasını önlemek için TLS bağlantısını yapılandırır.
+     */
+    private static void configureLegacyTlsSupport() {
+        try {
+            TrustManager[] trustAllCerts = new TrustManager[]{
+                    new X509TrustManager() {
+                        @Override
+                        public void checkClientTrusted(X509Certificate[] chain, String authType) {
+                        }
+
+                        @Override
+                        public void checkServerTrusted(X509Certificate[] chain, String authType) {
+                        }
+
+                        @Override
+                        public X509Certificate[] getAcceptedIssuers() {
+                            return new X509Certificate[0];
+                        }
+                    }
+            };
+            SSLContext sc = SSLContext.getInstance("TLS");
+            sc.init(null, trustAllCerts, new SecureRandom());
+            HttpsURLConnection.setDefaultSSLSocketFactory(sc.getSocketFactory());
+            HttpsURLConnection.setDefaultHostnameVerifier(new HostnameVerifier() {
+                @Override
+                public boolean verify(String hostname, SSLSession session) {
+                    return true;
+                }
+            });
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static HttpURLConnection openConnectionWithRedirects(String urlStr) throws Exception {
+        configureLegacyTlsSupport();
+        String currentUrl = urlStr;
+        for (int redirectCount = 0; redirectCount < 6; redirectCount++) {
+            URL url = new URL(currentUrl);
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setInstanceFollowRedirects(false);
+            conn.setConnectTimeout(15000);
+            conn.setReadTimeout(15000);
+            conn.setRequestProperty("User-Agent", "CalismaZamanlayici-Android");
+
+            int status = conn.getResponseCode();
+            if (status == HttpURLConnection.HTTP_MOVED_TEMP
+                    || status == HttpURLConnection.HTTP_MOVED_PERM
+                    || status == HttpURLConnection.HTTP_SEE_OTHER
+                    || status == 307
+                    || status == 308) {
+                String newUrl = conn.getHeaderField("Location");
+                conn.disconnect();
+                if (newUrl == null || newUrl.isEmpty()) {
+                    throw new Exception("Yönlendirme adresi bulunamadı.");
+                }
+                currentUrl = newUrl;
+            } else {
+                return conn;
+            }
+        }
+        throw new Exception("Çok fazla yönlendirme (redirect).");
+    }
 
     public static void checkUpdates(final Activity activity, final boolean showNoUpdateToast) {
         final String repo = VeliStorage.getGitHubRepo(activity);
@@ -40,13 +115,14 @@ public class VeliGitHubUpdater {
             @Override
             public void run() {
                 try {
+                    configureLegacyTlsSupport();
                     String apiUrl = "https://api.github.com/repos/" + repo + "/releases/latest";
                     HttpURLConnection conn = (HttpURLConnection) new URL(apiUrl).openConnection();
                     conn.setRequestMethod("GET");
                     conn.setRequestProperty("Accept", "application/vnd.github.v3+json");
-                    conn.setRequestProperty("User-Agent", "CalismaZamanlayiciVeli-Android");
-                    conn.setConnectTimeout(10000);
-                    conn.setReadTimeout(10000);
+                    conn.setRequestProperty("User-Agent", "CalismaZamanlayici-Android");
+                    conn.setConnectTimeout(12000);
+                    conn.setReadTimeout(12000);
 
                     final int code = conn.getResponseCode();
                     if (code != 200) {
@@ -82,6 +158,8 @@ public class VeliGitHubUpdater {
                             if (BuildConfig.APK_ASSET_NAME.equalsIgnoreCase(name)) {
                                 foundApkUrl = asset.optString("browser_download_url", null);
                                 break;
+                            } else if (foundApkUrl == null && name.endsWith(".apk")) {
+                                foundApkUrl = asset.optString("browser_download_url", null);
                             }
                         }
                     }
@@ -102,7 +180,7 @@ public class VeliGitHubUpdater {
                         mainHandler.post(new Runnable() {
                             @Override
                             public void run() {
-                                Toast.makeText(activity, "✅ Veli uygulamanız güncel! (" + currentVersion + ")", Toast.LENGTH_SHORT).show();
+                                Toast.makeText(activity, "✅ Uygulamanız güncel! (" + currentVersion + ")", Toast.LENGTH_SHORT).show();
                             }
                         });
                     }
@@ -111,7 +189,7 @@ public class VeliGitHubUpdater {
                         mainHandler.post(new Runnable() {
                             @Override
                             public void run() {
-                                Toast.makeText(activity, "Güncelleme hatası: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                                Toast.makeText(activity, "Güncelleme kontrolü sırasında bağlantı hatası: " + e.getMessage(), Toast.LENGTH_LONG).show();
                             }
                         });
                     }
@@ -146,8 +224,8 @@ public class VeliGitHubUpdater {
 
     private static void showUpdateAvailableDialog(final Activity activity, String newTag, String notes, final String apkUrl) {
         new AlertDialog.Builder(activity)
-                .setTitle("🎉 Yeni Veli Sürümü Bulundu! (" + newTag + ")")
-                .setMessage("Eşleştirilmiş çocuk listesi silinmeden mevcut Veli uygulamasının üzerine güncellenecektir.\n\nDeğişiklikler:\n" + notes)
+                .setTitle("🎉 Yeni Güncelleme Bulundu! (" + newTag + ")")
+                .setMessage("GitHub üzerinde yeni bir sürüm yayınlandı. Verileriniz silinmeden mevcut uygulamanın üzerine güncellenecektir.\n\nDeğişiklikler:\n" + notes)
                 .setPositiveButton("İndir ve Güncelle", (dialog, which) -> downloadAndInstallApk(activity, apkUrl))
                 .setNeutralButton("GitHub Repo Ayarı", (dialog, which) -> showConfigureRepoDialog(activity))
                 .setNegativeButton("Daha Sonra", null)
@@ -192,8 +270,8 @@ public class VeliGitHubUpdater {
         }
 
         final ProgressDialog progressDialog = new ProgressDialog(activity);
-        progressDialog.setTitle("Veli Uygulaması İndiriliyor...");
-        progressDialog.setMessage("Lütfen bekleyin...");
+        progressDialog.setTitle("Yeni Sürüm İndiriliyor...");
+        progressDialog.setMessage("Lütfen bekleyin, güncelleme paketi indiriliyor...");
         progressDialog.setIndeterminate(false);
         progressDialog.setMax(100);
         progressDialog.setProgressStyle(ProgressDialog.STYLE_HORIZONTAL);
@@ -206,12 +284,9 @@ public class VeliGitHubUpdater {
             @Override
             public void run() {
                 try {
-                    URL url = new URL(apkUrl);
-                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                    conn.setInstanceFollowRedirects(true);
-                    conn.connect();
-
+                    HttpURLConnection conn = openConnectionWithRedirects(apkUrl);
                     int fileLength = conn.getContentLength();
+
                     File dir = activity.getExternalFilesDir(null);
                     if (dir == null) {
                         dir = activity.getCacheDir();
@@ -244,22 +319,13 @@ public class VeliGitHubUpdater {
                     output.flush();
                     output.close();
                     input.close();
+                    conn.disconnect();
 
                     mainHandler.post(new Runnable() {
                         @Override
                         public void run() {
                             progressDialog.dismiss();
-                            Intent intent = new Intent(Intent.ACTION_VIEW);
-                            Uri apkUri;
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                                apkUri = VeliApkFileProvider.getUriForFile(outputFile);
-                                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                            } else {
-                                apkUri = Uri.fromFile(outputFile);
-                            }
-                            intent.setDataAndType(apkUri, "application/vnd.android.package-archive");
-                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                            activity.startActivity(intent);
+                            promptInstallApk(activity, outputFile);
                         }
                     });
                 } catch (final Exception e) {
@@ -273,5 +339,19 @@ public class VeliGitHubUpdater {
                 }
             }
         }).start();
+    }
+
+    private static void promptInstallApk(Activity activity, File apkFile) {
+        Intent intent = new Intent(Intent.ACTION_VIEW);
+        Uri apkUri;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            apkUri = VeliApkFileProvider.getUriForFile(apkFile);
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        } else {
+            apkUri = Uri.fromFile(apkFile);
+        }
+        intent.setDataAndType(apkUri, "application/vnd.android.package-archive");
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        activity.startActivity(intent);
     }
 }

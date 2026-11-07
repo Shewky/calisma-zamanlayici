@@ -175,7 +175,7 @@ public class VeliMainActivity extends Activity {
         container.addView(rgRole);
 
         TextView tvThemeLabel = new TextView(this);
-        tvThemeLabel.setText("\n🎨 Olgun Tema Seçimi:");
+        tvThemeLabel.setText("\n🎨 Tema Seçimi:");
         tvThemeLabel.setTextSize(15f);
         tvThemeLabel.setTextColor(0xFF0F172A);
         container.addView(tvThemeLabel);
