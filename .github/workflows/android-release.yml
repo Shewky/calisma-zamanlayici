@@ -47,11 +47,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0.${{ github.run_number }}
-          name: "Çalışma Zamanlayıcı v1.0.${{ github.run_number }} (Sürüm Kodu: ${{ 100 + github.run_number }})"
+          name: "Çalışma Zamanlayıcı v1.0.${{ github.run_number }}"
           body: |
             🌸 **İpek'in Çalışma Zamanlayıcı Uygulaması - Otomatik Güncelleme Paketi**
             - **Sürüm:** `v1.0.${{ github.run_number }}`
-            - **Sürüm Kodu (versionCode):** `${{ 100 + github.run_number }}`
+            - **Yapı Numarası:** `${{ github.run_number }}`
             - **Minimum Android Sürümü:** Android 6.0 (API 23) ve üzeri
             - Sabit imza (`ipek-release-key.jks`) ile imzalanmıştır; mevcut uygulamanın üzerine veriler silinmeden doğrudan güncellenir.
           files: app/build/outputs/apk/release/CalismaZamanlayici.apk
