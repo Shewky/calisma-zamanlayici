@@ -20,6 +20,17 @@ public class VeliStorage {
     private static final String KEY_PARENT_ROLE = "parent_role"; // "ANNE" veya "BABA"
     private static final String KEY_PAIRED_CHILDREN = "paired_children_json";
     private static final String KEY_GITHUB_REPO = "custom_github_repo";
+    private static final String KEY_VELI_THEME = "veli_theme_key";
+
+    public static String getThemeKey(Context context) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        return prefs.getString(KEY_VELI_THEME, VeliThemeHelper.THEME_NAVY_EMERALD);
+    }
+
+    public static void setThemeKey(Context context, String themeKey) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        prefs.edit().putString(KEY_VELI_THEME, themeKey).apply();
+    }
 
     public static class PairedChild {
         public String childId;

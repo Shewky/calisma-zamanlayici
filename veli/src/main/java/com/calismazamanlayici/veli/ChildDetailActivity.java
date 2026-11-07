@@ -7,6 +7,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -15,16 +16,16 @@ import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
-import java.io.OutputStream;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
 import java.net.HttpURLConnection;
+import java.net.InetAddress;
 import java.net.URL;
+import java.net.URLEncoder;
 
 /**
- * Veli uygulamasında çocuğun adına tıklandığında açılan detaylı takip ekranı:
- * - Anlık çalışma durumu ve canlı sayaç
- * - Anne / Baba senaryosuna uygun uzaktan sesli övgü gönderme ("Annenden/Babandan övgü aldın tebrikler", "Aferin sana")
- * - Haftalık başarı ödülleri / rozetler
- * - Çalışma Takvimi kayıtları (Ödev, Test Çözümü, Kitap Okuma)
+ * Veli uygulamasında çocuğun adına tıklandığında açılan detaylı takip ekranı.
+ * Uzaktan tebrik/övgü gönderimi hem hızlı UDP hem de GET tabanlı HTTP ile anında ve hatasız iletilir.
  */
 public class ChildDetailActivity extends Activity {
 
@@ -32,6 +33,8 @@ public class ChildDetailActivity extends Activity {
     private String childName = "Öğrenci";
     private String childIp = "";
 
+    private ScrollView scrollRootChildDetail;
+    private LinearLayout layoutDetailHeaderCard;
     private TextView tvDetailChildName;
     private TextView tvDetailLivePhase;
     private TextView tvDetailLiveTimers;
@@ -62,6 +65,8 @@ public class ChildDetailActivity extends Activity {
             childIp = getIntent().getStringExtra("EXTRA_CHILD_IP");
         }
 
+        scrollRootChildDetail = findViewById(R.id.scrollRootChildDetail);
+        layoutDetailHeaderCard = findViewById(R.id.layoutDetailHeaderCard);
         tvDetailChildName = findViewById(R.id.tvDetailChildName);
         tvDetailLivePhase = findViewById(R.id.tvDetailLivePhase);
         tvDetailLiveTimers = findViewById(R.id.tvDetailLiveTimers);
@@ -73,6 +78,16 @@ public class ChildDetailActivity extends Activity {
         Button btnSendAferinPraise = findViewById(R.id.btnSendAferinPraise);
         Button btnDirectCallFromDetail = findViewById(R.id.btnDirectCallFromDetail);
         Button btnBack = findViewById(R.id.btnBackFromDetail);
+
+        VeliThemeHelper.Palette p = VeliThemeHelper.getPalette(this);
+        VeliThemeHelper.applyWindowAndSurface(this, scrollRootChildDetail);
+        if (layoutDetailHeaderCard != null) {
+            layoutDetailHeaderCard.setBackground(VeliThemeHelper.createHeaderDrawable(this));
+        }
+        btnSendRolePraise.setBackground(VeliThemeHelper.createButtonDrawable(this, p.secondary));
+        btnSendAferinPraise.setBackground(VeliThemeHelper.createButtonDrawable(this, p.accent));
+        btnDirectCallFromDetail.setBackground(VeliThemeHelper.createButtonDrawable(this, p.primary));
+        btnBack.setBackground(VeliThemeHelper.createButtonDrawable(this, p.primaryDark));
 
         tvDetailChildName.setText("👤 " + childName + " • Canlı Takip ve Takvim");
 
@@ -114,55 +129,82 @@ public class ChildDetailActivity extends Activity {
         super.onPause();
     }
 
+    /**
+     * Övgü mesajını hem hızlı UDP paketi olarak hem de GET parametresiyle gönderir.
+     * Bu sayede "unexpected end of stream" hatası oluşmaz ve anında sesli anons yapılır.
+     */
     private void sendPraiseToChild(final String praiseSpeech) {
         final String parentRole = VeliStorage.getParentRole(this);
+        for (VeliStorage.PairedChild c : VeliStorage.getPairedChildren(this)) {
+            if (c.childId.equalsIgnoreCase(childId) && c.ipAddress != null && !c.ipAddress.isEmpty()) {
+                childIp = c.ipAddress;
+                break;
+            }
+        }
+
         new Thread(new Runnable() {
             @Override
             public void run() {
+                boolean sentOk = false;
+
+                // 1. Hızlı UDP paketi ile gönder (Hem doğrudan çocuk IP'sine hem de ağ yayınına)
                 try {
-                    JSONObject body = new JSONObject();
-                    body.put("parentRole", parentRole);
-                    body.put("praiseText", praiseSpeech);
-                    byte[] payload = body.toString().getBytes("UTF-8");
-
-                    URL url = new URL("http://" + childIp + ":" + ParentBackgroundService.STUDENT_HTTP_PORT + "/praise");
-                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                    conn.setRequestMethod("POST");
-                    conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-                    conn.setConnectTimeout(3000);
-                    conn.setDoOutput(true);
-                    OutputStream os = conn.getOutputStream();
-                    os.write(payload);
-                    os.flush();
-                    os.close();
-
-                    final int code = conn.getResponseCode();
-                    uiHandler.post(new Runnable() {
-                        @Override
-                        public void run() {
-                            if (code == 200) {
-                                Toast.makeText(ChildDetailActivity.this,
-                                        "👏 Övgü mesajı gönderildi ve sesli anons edildi: '''" + praiseSpeech + "'''",
-                                        Toast.LENGTH_LONG).show();
-                            } else {
-                                Toast.makeText(ChildDetailActivity.this, "Gönderilemedi (HTTP " + code + ")", Toast.LENGTH_SHORT).show();
-                            }
-                        }
-                    });
-                } catch (final Exception e) {
-                    uiHandler.post(new Runnable() {
-                        @Override
-                        public void run() {
-                            Toast.makeText(ChildDetailActivity.this, "Bağlantı hatası: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-                        }
-                    });
+                    String udpMsg = "CZ_PRAISE|" + parentRole + "|" + praiseSpeech;
+                    byte[] udpBytes = udpMsg.getBytes("UTF-8");
+                    DatagramSocket ds = new DatagramSocket();
+                    ds.setBroadcast(true);
+                    if (childIp != null && !childIp.isEmpty()) {
+                        ds.send(new DatagramPacket(udpBytes, udpBytes.length,
+                                InetAddress.getByName(childIp), ParentBackgroundService.DISCOVERY_UDP_PORT));
+                        sentOk = true;
+                    }
+                    ds.send(new DatagramPacket(udpBytes, udpBytes.length,
+                            InetAddress.getByName("255.255.255.255"), ParentBackgroundService.DISCOVERY_UDP_PORT));
+                    ds.close();
+                } catch (Exception ignored) {
                 }
+
+                // 2. GET tabanlı temiz HTTP isteği ile gönder (Content-Length uyuşmazlığı yaşanmaz!)
+                if (childIp != null && !childIp.isEmpty()) {
+                    try {
+                        String q = "role=" + URLEncoder.encode(parentRole, "UTF-8")
+                                + "&text=" + URLEncoder.encode(praiseSpeech, "UTF-8");
+                        URL url = new URL("http://" + childIp + ":" + ParentBackgroundService.STUDENT_HTTP_PORT + "/praise?" + q);
+                        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                        conn.setRequestMethod("GET");
+                        conn.setRequestProperty("Connection", "close");
+                        conn.setConnectTimeout(2000);
+                        conn.setReadTimeout(2000);
+                        int code = conn.getResponseCode();
+                        conn.disconnect();
+                        if (code == 200) {
+                            sentOk = true;
+                        }
+                    } catch (Exception ignored) {
+                    }
+                }
+
+                final boolean finalSuccess = sentOk;
+                uiHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (finalSuccess) {
+                            Toast.makeText(ChildDetailActivity.this,
+                                    "👏 Övgü mesajı gönderildi: '" + praiseSpeech + "'",
+                                    Toast.LENGTH_LONG).show();
+                        } else {
+                            Toast.makeText(ChildDetailActivity.this,
+                                    "Öğrenci cihazı ağda aranıyor, lütfen tekrar deneyin.",
+                                    Toast.LENGTH_SHORT).show();
+                            ParentBackgroundService.scanLanAndSyncChildren(ChildDetailActivity.this, false, null);
+                        }
+                    }
+                });
             }
         }).start();
     }
 
     private void fetchFullReportFromChild() {
-        // Güncel IP adresini VeliStorage üzerinden kontrol et
         for (VeliStorage.PairedChild c : VeliStorage.getPairedChildren(this)) {
             if (c.childId.equalsIgnoreCase(childId) && c.ipAddress != null && !c.ipAddress.isEmpty()) {
                 childIp = c.ipAddress;
@@ -177,9 +219,14 @@ public class ChildDetailActivity extends Activity {
                 try {
                     URL url = new URL("http://" + childIp + ":" + ParentBackgroundService.STUDENT_HTTP_PORT + "/full_report");
                     HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                    conn.setRequestMethod("GET");
+                    conn.setRequestProperty("Connection", "close");
                     conn.setConnectTimeout(2000);
                     conn.setReadTimeout(2000);
-                    if (conn.getResponseCode() != 200) return;
+                    if (conn.getResponseCode() != 200) {
+                        conn.disconnect();
+                        return;
+                    }
 
                     BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream(), "UTF-8"));
                     StringBuilder sb = new StringBuilder();
@@ -188,6 +235,7 @@ public class ChildDetailActivity extends Activity {
                         sb.append(line);
                     }
                     reader.close();
+                    conn.disconnect();
 
                     final JSONObject report = new JSONObject(sb.toString());
                     uiHandler.post(new Runnable() {

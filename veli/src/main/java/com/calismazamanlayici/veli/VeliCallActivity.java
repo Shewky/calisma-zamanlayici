@@ -7,19 +7,13 @@ import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import org.json.JSONObject;
-
-import java.io.OutputStream;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
 import java.net.HttpURLConnection;
+import java.net.InetAddress;
 import java.net.URL;
+import java.net.URLEncoder;
 
-/**
- * Veli uygulamasındaki İkili Sesli Görüşme ekranı:
- * 1. Çocuktan çağrı geldiğinde: "Yanıtlamak için uygulamadan onay ver" uyarısıyla açılır;
- *    Veli "Onay Ver ve Görüşmeyi Başlat" butonuna tıkladığında ikili görüşme başlar.
- * 2. Veli "Ara" butonuna bastığında: Onaya gerek kalmadan doğrudan Çalışma Zamanlayıcı
- *    uygulamasında görüşmeyi başlatır.
- */
 public class VeliCallActivity extends Activity {
 
     private static VeliCallActivity activeInstance;
@@ -88,10 +82,6 @@ public class VeliCallActivity extends Activity {
         });
     }
 
-    /**
-     * Veli doğrudan "Ara" butonuna bastığında Çalışma Zamanlayıcı uygulamasında
-     * onaya gerek kalmadan görüşmeyi anında başlatır.
-     */
     private void triggerDirectCallOnChild() {
         VeliVoiceCallManager.startCall(this, childIp);
         final String parentRole = VeliStorage.getParentRole(this);
@@ -101,31 +91,37 @@ public class VeliCallActivity extends Activity {
             @Override
             public void run() {
                 try {
-                    JSONObject body = new JSONObject();
-                    body.put("parentRole", parentRole);
-                    body.put("parentIp", myIp);
-                    byte[] payload = body.toString().getBytes("UTF-8");
+                    String udpMsg = "CZ_DIRECT_CALL|" + parentRole + "|" + myIp;
+                    byte[] udpBytes = udpMsg.getBytes("UTF-8");
+                    DatagramSocket ds = new DatagramSocket();
+                    ds.setBroadcast(true);
+                    if (childIp != null && !childIp.isEmpty()) {
+                        ds.send(new DatagramPacket(udpBytes, udpBytes.length,
+                                InetAddress.getByName(childIp), ParentBackgroundService.DISCOVERY_UDP_PORT));
+                    }
+                    ds.send(new DatagramPacket(udpBytes, udpBytes.length,
+                            InetAddress.getByName("255.255.255.255"), ParentBackgroundService.DISCOVERY_UDP_PORT));
+                    ds.close();
+                } catch (Exception ignored) {
+                }
 
-                    URL url = new URL("http://" + childIp + ":" + ParentBackgroundService.STUDENT_HTTP_PORT + "/direct_call_from_parent");
+                try {
+                    String q = "role=" + URLEncoder.encode(parentRole, "UTF-8")
+                            + "&ip=" + URLEncoder.encode(myIp, "UTF-8");
+                    URL url = new URL("http://" + childIp + ":" + ParentBackgroundService.STUDENT_HTTP_PORT + "/direct_call_from_parent?" + q);
                     HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                    conn.setRequestMethod("POST");
-                    conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-                    conn.setConnectTimeout(3000);
-                    conn.setDoOutput(true);
-                    OutputStream os = conn.getOutputStream();
-                    os.write(payload);
-                    os.flush();
-                    os.close();
+                    conn.setRequestMethod("GET");
+                    conn.setRequestProperty("Connection", "close");
+                    conn.setConnectTimeout(2000);
+                    conn.setReadTimeout(2000);
                     conn.getResponseCode();
+                    conn.disconnect();
                 } catch (Exception ignored) {
                 }
             }
         }).start();
     }
 
-    /**
-     * Çocuktan gelen çağrıya Veli onay verdiğinde ikili görüşmeyi başlatır.
-     */
     private void approveIncomingChildCall() {
         VeliVoiceCallManager.startCall(this, childIp);
         final String myIp = ParentBackgroundService.getLocalIpAddress(this);
@@ -134,21 +130,30 @@ public class VeliCallActivity extends Activity {
             @Override
             public void run() {
                 try {
-                    JSONObject body = new JSONObject();
-                    body.put("parentIp", myIp);
-                    byte[] payload = body.toString().getBytes("UTF-8");
+                    String udpMsg = "CZ_CALL_ACCEPTED|" + myIp;
+                    byte[] udpBytes = udpMsg.getBytes("UTF-8");
+                    DatagramSocket ds = new DatagramSocket();
+                    ds.setBroadcast(true);
+                    if (childIp != null && !childIp.isEmpty()) {
+                        ds.send(new DatagramPacket(udpBytes, udpBytes.length,
+                                InetAddress.getByName(childIp), ParentBackgroundService.DISCOVERY_UDP_PORT));
+                    }
+                    ds.send(new DatagramPacket(udpBytes, udpBytes.length,
+                            InetAddress.getByName("255.255.255.255"), ParentBackgroundService.DISCOVERY_UDP_PORT));
+                    ds.close();
+                } catch (Exception ignored) {
+                }
 
-                    URL url = new URL("http://" + childIp + ":" + ParentBackgroundService.STUDENT_HTTP_PORT + "/parent_accepted_call");
+                try {
+                    String q = "ip=" + URLEncoder.encode(myIp, "UTF-8");
+                    URL url = new URL("http://" + childIp + ":" + ParentBackgroundService.STUDENT_HTTP_PORT + "/parent_accepted_call?" + q);
                     HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                    conn.setRequestMethod("POST");
-                    conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-                    conn.setConnectTimeout(3000);
-                    conn.setDoOutput(true);
-                    OutputStream os = conn.getOutputStream();
-                    os.write(payload);
-                    os.flush();
-                    os.close();
+                    conn.setRequestMethod("GET");
+                    conn.setRequestProperty("Connection", "close");
+                    conn.setConnectTimeout(2000);
+                    conn.setReadTimeout(2000);
                     conn.getResponseCode();
+                    conn.disconnect();
                 } catch (Exception ignored) {
                 }
             }
@@ -164,9 +169,11 @@ public class VeliCallActivity extends Activity {
                     try {
                         URL url = new URL("http://" + childIp + ":" + ParentBackgroundService.STUDENT_HTTP_PORT + "/end_call");
                         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                        conn.setRequestMethod("POST");
-                        conn.setConnectTimeout(2000);
+                        conn.setRequestMethod("GET");
+                        conn.setRequestProperty("Connection", "close");
+                        conn.setConnectTimeout(1500);
                         conn.getResponseCode();
+                        conn.disconnect();
                     } catch (Exception ignored) {
                     }
                 }

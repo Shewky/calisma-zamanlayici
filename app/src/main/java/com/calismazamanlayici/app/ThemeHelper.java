@@ -8,16 +8,46 @@ import android.view.View;
 import android.view.Window;
 
 /**
- * Kullanıcının seçtiği temaya göre (Mavi, Pembe, Yeşil, Mor, Turuncu)
- * ekran başlıklarını, butonları ve durum çubuğunu dinamik olarak renklendirir.
+ * Öğrenci uygulaması için 10 farklı neşeli renk teması sunar.
  */
 public class ThemeHelper {
 
-    public static final String THEME_BLUE = "BLUE";     // Erkek varsayılanı: Mavi tonları
-    public static final String THEME_PINK = "PINK";     // Kız varsayılanı: Pembe tonları
-    public static final String THEME_GREEN = "GREEN";   // Doğa Yeşili tonları
-    public static final String THEME_PURPLE = "PURPLE"; // Galaksi Moru tonları
-    public static final String THEME_ORANGE = "ORANGE"; // Enerjik Turuncu tonları
+    public static final String THEME_BLUE = "BLUE";
+    public static final String THEME_PINK = "PINK";
+    public static final String THEME_GREEN = "GREEN";
+    public static final String THEME_PURPLE = "PURPLE";
+    public static final String THEME_ORANGE = "ORANGE";
+    public static final String THEME_RAINBOW = "RAINBOW";
+    public static final String THEME_STRAWBERRY = "STRAWBERRY";
+    public static final String THEME_DOLPHIN = "DOLPHIN";
+    public static final String THEME_SUNFLOWER = "SUNFLOWER";
+    public static final String THEME_CANDY = "CANDY";
+
+    public static final String[] ALL_THEME_KEYS = new String[]{
+            THEME_BLUE,
+            THEME_PINK,
+            THEME_GREEN,
+            THEME_PURPLE,
+            THEME_ORANGE,
+            THEME_RAINBOW,
+            THEME_STRAWBERRY,
+            THEME_DOLPHIN,
+            THEME_SUNFLOWER,
+            THEME_CANDY
+    };
+
+    public static final String[] ALL_THEME_TITLES = new String[]{
+            "🔵 Okyanus Mavisi (Erkek Varsayılanı)",
+            "🌸 Şeker Pembe (Kız Varsayılanı)",
+            "🟢 Zümrüt Yeşili (Doğa Enerjisi)",
+            "🟣 Galaksi Moru (Uzay Macerası)",
+            "🟠 Mercan Turuncu (Neşeli Güneş)",
+            "🌈 Gökkuşağı Turkuaz & Fuşya",
+            "🍓 Çilek & Limon Neşesi",
+            "🐬 Yunus Mavisi & Su Yeşili",
+            "🌻 Ayçiçeği & Altın Yıldız",
+            "🦄 Pamuk Şeker & Lila"
+    };
 
     public static class Palette {
         public final int primary;
@@ -45,8 +75,17 @@ public class ThemeHelper {
             return new Palette(0xFF673AB7, 0xFF4527A0, 0xFF3949AB, 0xFF00ACC1, 0xFFF3E5F5);
         } else if (THEME_ORANGE.equals(theme)) {
             return new Palette(0xFFEF6C00, 0xFFE65100, 0xFFF57C00, 0xFF00897B, 0xFFFFF8E1);
+        } else if (THEME_RAINBOW.equals(theme)) {
+            return new Palette(0xFF00ACC1, 0xFF00838F, 0xFFEC407A, 0xFFFFB300, 0xFFE0F7FA);
+        } else if (THEME_STRAWBERRY.equals(theme)) {
+            return new Palette(0xFFE91E63, 0xFFAD1457, 0xFFF57C00, 0xFF43A047, 0xFFFCE4EC);
+        } else if (THEME_DOLPHIN.equals(theme)) {
+            return new Palette(0xFF0288D1, 0xFF01579B, 0xFF26A69A, 0xFF7E57C2, 0xFFE1F5FE);
+        } else if (THEME_SUNFLOWER.equals(theme)) {
+            return new Palette(0xFFF57F17, 0xFFE65100, 0xFFFF7043, 0xFF00897B, 0xFFFFFDE7);
+        } else if (THEME_CANDY.equals(theme)) {
+            return new Palette(0xFF8E24AA, 0xFF6A1B9A, 0xFFF06292, 0xFF26C6DA, 0xFFFCE4EC);
         } else {
-            // Varsayılan Mavi Tonları (THEME_BLUE)
             return new Palette(0xFF1E88E5, 0xFF1565C0, 0xFF039BE5, 0xFF00897B, 0xFFF0F7FF);
         }
     }

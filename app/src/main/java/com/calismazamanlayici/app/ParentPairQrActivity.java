@@ -13,16 +13,11 @@ import com.google.zxing.BarcodeFormat;
 import com.google.zxing.common.BitMatrix;
 import com.google.zxing.qrcode.QRCodeWriter;
 
-/**
- * Anne ve Baba için ayrı ayrı eşleştirme karekodu (QR Code) üretir.
- * Veli uygulamasında bu karekod okutulduğunda öğrenci cihazı veli ekranına otomatik eklenir.
- */
 public class ParentPairQrActivity extends Activity {
 
     private TextView tvQrRoleTitle;
     private ImageView ivQrCodeBitmap;
     private TextView tvQrNetworkInfo;
-    private String currentRole = "ANNE";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -44,16 +39,8 @@ public class ParentPairQrActivity extends Activity {
         btnShowAnneQr.setBackground(ThemeHelper.createButtonDrawable(this, p.primary));
         btnShowBabaQr.setBackground(ThemeHelper.createButtonDrawable(this, p.secondary));
 
-        btnShowAnneQr.setOnClickListener(v -> {
-            currentRole = "ANNE";
-            renderQrCodeForRole("ANNE");
-        });
-
-        btnShowBabaQr.setOnClickListener(v -> {
-            currentRole = "BABA";
-            renderQrCodeForRole("BABA");
-        });
-
+        btnShowAnneQr.setOnClickListener(v -> renderQrCodeForRole("ANNE"));
+        btnShowBabaQr.setOnClickListener(v -> renderQrCodeForRole("BABA"));
         btnBack.setOnClickListener(v -> finish());
 
         renderQrCodeForRole("ANNE");
@@ -71,7 +58,6 @@ public class ParentPairQrActivity extends Activity {
             tvQrRoleTitle.setText("👩 ANNE İÇİN EŞLEŞTİRME KAREKODU");
         }
 
-        // Karekod içeriği: CZPAIR|<ROLE>|<CHILD_ID>|<IP>|<PORT>|<USER_NAME>|<GRADE>
         String qrPayload = "CZPAIR|" + role + "|" + childId + "|" + localIp + "|"
                 + LanSyncServer.STUDENT_HTTP_PORT + "|" + userName + "|" + grade;
 
@@ -80,9 +66,13 @@ public class ParentPairQrActivity extends Activity {
             ivQrCodeBitmap.setImageBitmap(bmp);
         }
 
+        String wifiState = LanSyncServer.isWifiConnected(this)
+                ? "🟢 Wi-Fi Bağlantısı Aktif"
+                : "⚠️ Wi-Fi bağlantısını aç";
+
         tvQrNetworkInfo.setText("Öğrenci: " + userName + " (" + grade + ". Sınıf)"
-                + "\nAğ IP: " + localIp + " • Cihaz Kodu: " + childId
-                + "\n(IP adresi değişse bile Veli uygulaması ağda otomatik bulur)");
+                + "\n" + wifiState
+                + "\n(Veli uygulamasından bu karekodu okutarak eşleştirebilirsiniz)");
     }
 
     private Bitmap generateQrBitmap(String content, int sizePx) {

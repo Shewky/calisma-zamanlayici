@@ -2,6 +2,9 @@ package com.calismazamanlayici.app;
 
 import android.content.Context;
 import android.content.Intent;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
+import android.net.Uri;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.Handler;
@@ -11,24 +14,25 @@ import android.widget.Toast;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.Inet4Address;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.URLDecoder;
 import java.util.Enumeration;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Öğrenci cihazında arka planda çalışan yerel ağ (LAN) sunucusu.
- * - Port 45677 (UDP): IP adresi değişse bile Veli uygulamasının öğrenci cihazını otomatik bulmasını sağlar.
- * - Port 45678 (HTTP/TCP): Veli uygulamasına anlık çalışma durumu, takvim geçmişi, başarı rozetleri sunar;
- *   uzaktan övgü ("Annenden/Babandan övgü aldın tebrikler") ve doğrudan/onaylı sesli çağrı komutlarını işler.
+ * Hem HTTP (Port 45678) hem de hızlı UDP (Port 45677) üzerinden Veli uygulamasıyla haberleşir.
  */
 public class LanSyncServer {
 
@@ -41,6 +45,7 @@ public class LanSyncServer {
     private volatile boolean running = false;
     private ServerSocket httpServerSocket;
     private DatagramSocket udpSocket;
+    private long lastPraiseTimeMs = 0L;
 
     public LanSyncServer(TimerForegroundService service) {
         this.service = service;
@@ -66,6 +71,21 @@ public class LanSyncServer {
         }
     }
 
+    public static boolean isWifiEnabled(Context context) {
+        try {
+            WifiManager wm = (WifiManager) context.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            return wm != null && wm.isWifiEnabled();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    public static boolean isWifiConnected(Context context) {
+        if (!isWifiEnabled(context)) return false;
+        String ip = getLocalIpAddress(context);
+        return ip != null && !ip.equals("127.0.0.1") && !ip.equals("0.0.0.0");
+    }
+
     public static String getLocalIpAddress(Context context) {
         try {
             WifiManager wm = (WifiManager) context.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
@@ -73,7 +93,7 @@ public class LanSyncServer {
                 WifiInfo wi = wm.getConnectionInfo();
                 int ipInt = wi != null ? wi.getIpAddress() : 0;
                 if (ipInt != 0) {
-                    return String.format(java.util.Locale.US, "%d.%d.%d.%d",
+                    return String.format(Locale.US, "%d.%d.%d.%d",
                             (ipInt & 0xff), (ipInt >> 8 & 0xff), (ipInt >> 16 & 0xff), (ipInt >> 24 & 0xff));
                 }
             }
@@ -110,9 +130,11 @@ public class LanSyncServer {
             @Override
             public void run() {
                 try {
-                    udpSocket = new DatagramSocket(DISCOVERY_UDP_PORT);
+                    udpSocket = new DatagramSocket(null);
+                    udpSocket.setReuseAddress(true);
+                    udpSocket.bind(new InetSocketAddress(DISCOVERY_UDP_PORT));
                     udpSocket.setBroadcast(true);
-                    byte[] buf = new byte[1024];
+                    byte[] buf = new byte[2048];
                     while (running && !udpSocket.isClosed()) {
                         DatagramPacket pkt = new DatagramPacket(buf, buf.length);
                         udpSocket.receive(pkt);
@@ -120,7 +142,6 @@ public class LanSyncServer {
                         String senderIp = pkt.getAddress().getHostAddress();
 
                         if (msg.startsWith("CZ_DISCOVER|")) {
-                            // Format: CZ_DISCOVER|<parentRole>|<parentIp>
                             String[] parts = msg.split("\\|");
                             if (parts.length >= 2) {
                                 String role = parts[1];
@@ -132,6 +153,24 @@ public class LanSyncServer {
                             DatagramPacket reply = new DatagramPacket(
                                     replyBytes, replyBytes.length, pkt.getAddress(), DISCOVERY_UDP_PORT);
                             udpSocket.send(reply);
+                        } else if (msg.startsWith("CZ_PRAISE|")) {
+                            // Format: CZ_PRAISE|<role>|<speech>
+                            String[] parts = msg.split("\\|", 3);
+                            if (parts.length >= 3) {
+                                triggerPraiseAnnouncement(parts[1], parts[2]);
+                            }
+                        } else if (msg.startsWith("CZ_DIRECT_CALL|")) {
+                            // Format: CZ_DIRECT_CALL|<role>|<parentIp>
+                            String[] parts = msg.split("\\|");
+                            String role = parts.length > 1 ? parts[1] : "ANNE";
+                            String pIp = (senderIp != null && !senderIp.isEmpty())
+                                    ? senderIp : (parts.length > 2 ? parts[2] : "");
+                            triggerDirectCallFromParent(role, pIp);
+                        } else if (msg.startsWith("CZ_CALL_ACCEPTED|")) {
+                            String[] parts = msg.split("\\|");
+                            String pIp = (senderIp != null && !senderIp.isEmpty())
+                                    ? senderIp : (parts.length > 1 ? parts[1] : "");
+                            triggerParentAcceptedCall(pIp);
                         }
                     }
                 } catch (Exception ignored) {
@@ -146,18 +185,20 @@ public class LanSyncServer {
             public void run() {
                 while (running) {
                     try {
-                        String payload = buildBeaconPayload();
-                        byte[] data = payload.getBytes("UTF-8");
-                        DatagramSocket ds = new DatagramSocket();
-                        ds.setBroadcast(true);
-                        DatagramPacket pkt = new DatagramPacket(
-                                data, data.length, InetAddress.getByName("255.255.255.255"), DISCOVERY_UDP_PORT);
-                        ds.send(pkt);
-                        ds.close();
+                        if (isWifiConnected(service)) {
+                            String payload = buildBeaconPayload();
+                            byte[] data = payload.getBytes("UTF-8");
+                            DatagramSocket ds = new DatagramSocket();
+                            ds.setBroadcast(true);
+                            DatagramPacket pkt = new DatagramPacket(
+                                    data, data.length, InetAddress.getByName("255.255.255.255"), DISCOVERY_UDP_PORT);
+                            ds.send(pkt);
+                            ds.close();
+                        }
                     } catch (Exception ignored) {
                     }
                     try {
-                        Thread.sleep(5000L);
+                        Thread.sleep(4000L);
                     } catch (InterruptedException e) {
                         break;
                     }
@@ -171,7 +212,9 @@ public class LanSyncServer {
             @Override
             public void run() {
                 try {
-                    httpServerSocket = new ServerSocket(STUDENT_HTTP_PORT);
+                    httpServerSocket = new ServerSocket();
+                    httpServerSocket.setReuseAddress(true);
+                    httpServerSocket.bind(new InetSocketAddress(STUDENT_HTTP_PORT));
                     while (running && !httpServerSocket.isClosed()) {
                         final Socket client = httpServerSocket.accept();
                         new Thread(new Runnable() {
@@ -187,41 +230,70 @@ public class LanSyncServer {
         }, "StudentHttpServer").start();
     }
 
+    /**
+     * Ham byte tabanlı HTTP okuyucu: Türkçe karakterlerde Content-Length uyuşmazlığı yüzünden
+     * oluşan "unexpected end of stream" hatasını tamamen ortadan kaldırır.
+     */
     private void handleHttpClient(Socket client) {
         try {
-            client.setSoTimeout(5000);
+            client.setSoTimeout(4000);
+            client.setTcpNoDelay(true);
             String remoteIp = client.getInetAddress().getHostAddress();
-            BufferedReader reader = new BufferedReader(new InputStreamReader(client.getInputStream(), "UTF-8"));
-            String requestLine = reader.readLine();
-            if (requestLine == null || requestLine.isEmpty()) {
+            InputStream in = client.getInputStream();
+
+            // Başlıkları (
+
+) kadar byte olarak oku
+            ByteArrayOutputStream headerBuf = new ByteArrayOutputStream();
+            int b;
+            int state = 0;
+            while ((b = in.read()) != -1) {
+                headerBuf.write(b);
+                if ((state == 0 || state == 2) && b == '') {
+                    state++;
+                } else if ((state == 1 || state == 3) && b == '
+') {
+                    state++;
+                    if (state == 4) break;
+                } else {
+                    state = 0;
+                }
+                if (headerBuf.size() > 8192) break;
+            }
+
+            String headerStr = new String(headerBuf.toByteArray(), "UTF-8");
+            String[] lines = headerStr.split("\r\n");
+            if (lines.length == 0 || lines[0].isEmpty()) {
                 client.close();
                 return;
             }
 
-            String[] reqParts = requestLine.split(" ");
-            String path = reqParts.length > 1 ? reqParts[1] : "/";
+            String[] reqParts = lines[0].split(" ");
+            String fullUri = reqParts.length > 1 ? reqParts[1] : "/";
+            Uri parsedUri = Uri.parse("http://localhost" + fullUri);
+            String path = parsedUri.getPath() != null ? parsedUri.getPath() : "/";
 
             int contentLength = 0;
-            String headerLine;
-            while ((headerLine = reader.readLine()) != null && !headerLine.isEmpty()) {
-                if (headerLine.toLowerCase(java.util.Locale.US).startsWith("content-length:")) {
+            for (int i = 1; i < lines.length; i++) {
+                String h = lines[i];
+                if (h.toLowerCase(Locale.US).startsWith("content-length:")) {
                     try {
-                        contentLength = Integer.parseInt(headerLine.substring(15).trim());
+                        contentLength = Integer.parseInt(h.substring(15).trim());
                     } catch (Exception ignored) {
                     }
                 }
             }
 
             String body = "";
-            if (contentLength > 0) {
-                char[] bodyChars = new char[contentLength];
+            if (contentLength > 0 && contentLength < 65536) {
+                byte[] bodyBytes = new byte[contentLength];
                 int totalRead = 0;
                 while (totalRead < contentLength) {
-                    int r = reader.read(bodyChars, totalRead, contentLength - totalRead);
+                    int r = in.read(bodyBytes, totalRead, contentLength - totalRead);
                     if (r == -1) break;
                     totalRead += r;
                 }
-                body = new String(bodyChars, 0, totalRead);
+                body = new String(bodyBytes, 0, totalRead, "UTF-8");
             }
 
             JSONObject responseJson;
@@ -231,72 +303,54 @@ public class LanSyncServer {
                 responseJson = buildFullReportJson();
             } else if (path.startsWith("/pair")) {
                 JSONObject req = body.isEmpty() ? new JSONObject() : new JSONObject(body);
-                String role = req.optString("parentRole", "ANNE");
-                String parentIp = req.optString("parentIp", remoteIp);
+                String role = parsedUri.getQueryParameter("role");
+                if (role == null || role.isEmpty()) role = req.optString("parentRole", "ANNE");
+                String parentIp = parsedUri.getQueryParameter("ip");
+                if (parentIp == null || parentIp.isEmpty()) parentIp = req.optString("parentIp", remoteIp);
                 if (parentIp == null || parentIp.isEmpty()) parentIp = remoteIp;
+
                 StudyDatabaseHelper.setPairedParentIp(service, role, parentIp);
                 responseJson = buildStatusJson();
                 responseJson.put("paired", true);
             } else if (path.startsWith("/praise")) {
-                JSONObject req = body.isEmpty() ? new JSONObject() : new JSONObject(body);
-                final String role = req.optString("parentRole", "ANNE");
-                final String customPraise = req.optString("praiseText", "");
-                final String speech;
-                if (!customPraise.isEmpty()) {
-                    speech = customPraise;
-                } else if ("BABA".equalsIgnoreCase(role)) {
-                    speech = "Babandan övgü aldın tebrikler! Aferin sana!";
-                } else {
-                    speech = "Annenden övgü aldın tebrikler! Aferin sana!";
+                String role = parsedUri.getQueryParameter("role");
+                String customPraise = parsedUri.getQueryParameter("text");
+                if ((customPraise == null || customPraise.isEmpty()) && !body.isEmpty()) {
+                    JSONObject req = new JSONObject(body);
+                    role = req.optString("parentRole", "ANNE");
+                    customPraise = req.optString("praiseText", "");
                 }
-                mainHandler.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        service.announce(speech, true);
-                        Toast.makeText(service, "🎉 " + speech, Toast.LENGTH_LONG).show();
+                if (role == null || role.isEmpty()) role = "ANNE";
+                if (customPraise != null) {
+                    try {
+                        customPraise = URLDecoder.decode(customPraise, "UTF-8");
+                    } catch (Exception ignored) {
                     }
-                });
+                }
+                triggerPraiseAnnouncement(role, customPraise);
                 responseJson = new JSONObject();
                 responseJson.put("ok", true);
             } else if (path.startsWith("/direct_call_from_parent")) {
-                // Veli uygulamasında "Ara" butonuna basıldığı anda onaya gerek kalmadan görüşmeyi başlatır!
-                JSONObject req = body.isEmpty() ? new JSONObject() : new JSONObject(body);
-                final String role = req.optString("parentRole", "ANNE");
-                String pIp = req.optString("parentIp", remoteIp);
+                String role = parsedUri.getQueryParameter("role");
+                String pIp = parsedUri.getQueryParameter("ip");
+                if ((pIp == null || pIp.isEmpty()) && !body.isEmpty()) {
+                    JSONObject req = new JSONObject(body);
+                    role = req.optString("parentRole", "ANNE");
+                    pIp = req.optString("parentIp", remoteIp);
+                }
+                if (role == null || role.isEmpty()) role = "ANNE";
                 if (pIp == null || pIp.isEmpty()) pIp = remoteIp;
-                final String finalParentIp = pIp;
-                StudyDatabaseHelper.setPairedParentIp(service, role, finalParentIp);
-
-                mainHandler.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        service.wakeScreenBriefly();
-                        VoiceCallManager.startCall(service, finalParentIp);
-                        service.updateForegroundNotification();
-                        Intent callIntent = new Intent(service, CallActivity.class);
-                        callIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-                        callIntent.putExtra("EXTRA_PARENT_ROLE", role);
-                        callIntent.putExtra("EXTRA_PARENT_IP", finalParentIp);
-                        callIntent.putExtra("EXTRA_DIRECT_CONNECTED", true);
-                        service.startActivity(callIntent);
-                    }
-                });
+                triggerDirectCallFromParent(role, pIp);
                 responseJson = new JSONObject();
                 responseJson.put("ok", true);
             } else if (path.startsWith("/parent_accepted_call")) {
-                // Çocuk çağrı gönderdiğinde Veli "Onay Ver" dediğinde çağrıyı başlatır!
-                JSONObject req = body.isEmpty() ? new JSONObject() : new JSONObject(body);
-                String pIp = req.optString("parentIp", remoteIp);
+                String pIp = parsedUri.getQueryParameter("ip");
+                if ((pIp == null || pIp.isEmpty()) && !body.isEmpty()) {
+                    JSONObject req = new JSONObject(body);
+                    pIp = req.optString("parentIp", remoteIp);
+                }
                 if (pIp == null || pIp.isEmpty()) pIp = remoteIp;
-                final String finalParentIp = pIp;
-
-                mainHandler.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        VoiceCallManager.startCall(service, finalParentIp);
-                        CallActivity.notifyParentAccepted();
-                    }
-                });
+                triggerParentAcceptedCall(pIp);
                 responseJson = new JSONObject();
                 responseJson.put("ok", true);
             } else if (path.startsWith("/end_call")) {
@@ -305,6 +359,7 @@ public class LanSyncServer {
                     public void run() {
                         VoiceCallManager.stopCall(service);
                         CallActivity.notifyCallEndedRemotely();
+                        service.updateForegroundNotification();
                     }
                 });
                 responseJson = new JSONObject();
@@ -322,6 +377,10 @@ public class LanSyncServer {
             out.write(headers.getBytes("UTF-8"));
             out.write(respBytes);
             out.flush();
+            try {
+                client.shutdownOutput();
+            } catch (Exception ignored) {
+            }
             client.close();
         } catch (Exception ignored) {
             try {
@@ -329,6 +388,58 @@ public class LanSyncServer {
             } catch (Exception ignored2) {
             }
         }
+    }
+
+    private synchronized void triggerPraiseAnnouncement(final String role, final String customPraise) {
+        long now = System.currentTimeMillis();
+        if (now - lastPraiseTimeMs < 1500L) return;
+        lastPraiseTimeMs = now;
+
+        final String speech;
+        if (customPraise != null && !customPraise.trim().isEmpty()) {
+            speech = customPraise.trim();
+        } else if ("BABA".equalsIgnoreCase(role)) {
+            speech = "Babandan övgü aldın tebrikler! Aferin sana!";
+        } else {
+            speech = "Annenden övgü aldın tebrikler! Aferin sana!";
+        }
+        mainHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                service.wakeScreenBriefly();
+                service.announce(speech, true);
+                Toast.makeText(service, "🎉 " + speech, Toast.LENGTH_LONG).show();
+            }
+        });
+    }
+
+    private void triggerDirectCallFromParent(final String role, final String finalParentIp) {
+        StudyDatabaseHelper.setPairedParentIp(service, role, finalParentIp);
+        mainHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                service.wakeScreenBriefly();
+                VoiceCallManager.startCall(service, finalParentIp);
+                service.updateForegroundNotification();
+                Intent callIntent = new Intent(service, CallActivity.class);
+                callIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                callIntent.putExtra("EXTRA_PARENT_ROLE", role);
+                callIntent.putExtra("EXTRA_PARENT_IP", finalParentIp);
+                callIntent.putExtra("EXTRA_DIRECT_CONNECTED", true);
+                service.startActivity(callIntent);
+            }
+        });
+    }
+
+    private void triggerParentAcceptedCall(final String finalParentIp) {
+        mainHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                VoiceCallManager.startCall(service, finalParentIp);
+                service.updateForegroundNotification();
+                CallActivity.notifyParentAccepted();
+            }
+        });
     }
 
     private JSONObject buildStatusJson() throws Exception {

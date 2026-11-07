@@ -18,6 +18,8 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
+import android.widget.RadioGroup;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -32,6 +34,8 @@ import java.util.List;
 
 public class VeliMainActivity extends Activity {
 
+    private ScrollView scrollRootVeliMain;
+    private LinearLayout layoutVeliHeaderCard;
     private LinearLayout layoutVeliOnboarding;
     private LinearLayout layoutVeliDashboard;
     private RadioButton rbRoleAnne;
@@ -39,6 +43,9 @@ public class VeliMainActivity extends Activity {
     private TextView tvVeliHeaderTitle;
     private TextView tvVeliVersionInfo;
     private LinearLayout layoutPairedChildrenList;
+    private Button btnScanQrCode;
+    private Button btnScanNetworkIps;
+    private Button btnVeliCheckUpdate;
 
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private boolean autoRefreshActive = false;
@@ -57,6 +64,8 @@ public class VeliMainActivity extends Activity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_veli_main);
 
+        scrollRootVeliMain = findViewById(R.id.scrollRootVeliMain);
+        layoutVeliHeaderCard = findViewById(R.id.layoutVeliHeaderCard);
         layoutVeliOnboarding = findViewById(R.id.layoutVeliOnboarding);
         layoutVeliDashboard = findViewById(R.id.layoutVeliDashboard);
         rbRoleAnne = findViewById(R.id.rbRoleAnne);
@@ -66,10 +75,10 @@ public class VeliMainActivity extends Activity {
         tvVeliHeaderTitle = findViewById(R.id.tvVeliHeaderTitle);
         tvVeliVersionInfo = findViewById(R.id.tvVeliVersionInfo);
         Button btnChangeVeliRole = findViewById(R.id.btnChangeVeliRole);
-        Button btnScanQrCode = findViewById(R.id.btnScanQrCode);
-        Button btnScanNetworkIps = findViewById(R.id.btnScanNetworkIps);
+        btnScanQrCode = findViewById(R.id.btnScanQrCode);
+        btnScanNetworkIps = findViewById(R.id.btnScanNetworkIps);
         layoutPairedChildrenList = findViewById(R.id.layoutPairedChildrenList);
-        Button btnVeliCheckUpdate = findViewById(R.id.btnVeliCheckUpdate);
+        btnVeliCheckUpdate = findViewById(R.id.btnVeliCheckUpdate);
 
         tvVeliVersionInfo.setText("Çalışma Zamanlayıcı Veli v" + BuildConfig.VERSION_NAME
                 + " (Kod: " + BuildConfig.VERSION_CODE + ") • Android 6+ Uyumlu");
@@ -88,13 +97,13 @@ public class VeliMainActivity extends Activity {
         });
 
         btnScanNetworkIps.setOnClickListener(v -> {
-            Toast.makeText(VeliMainActivity.this, "🔍 Ağdaki değişen IP adresleri ve kullanıcı isimleri taranıyor...", Toast.LENGTH_SHORT).show();
+            Toast.makeText(VeliMainActivity.this, "🔍 Ağdaki öğrenci cihazları taranıyor...", Toast.LENGTH_SHORT).show();
             ParentBackgroundService.scanLanAndSyncChildren(VeliMainActivity.this, false, new Runnable() {
                 @Override
                 public void run() {
                     renderChildrenCards();
                     pollPairedChildrenStatus();
-                    Toast.makeText(VeliMainActivity.this, "✅ IP taraması ve isim eşleştirmesi tamamlandı!", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(VeliMainActivity.this, "✅ Cihaz ve isim eşleştirmesi yenilendi!", Toast.LENGTH_SHORT).show();
                 }
             });
         });
@@ -108,7 +117,6 @@ public class VeliMainActivity extends Activity {
             return true;
         });
 
-        // Arka plan çağrı dinleme servisini başlat
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(new Intent(this, ParentBackgroundService.class));
         } else {
@@ -116,38 +124,98 @@ public class VeliMainActivity extends Activity {
         }
 
         requestVeliPermissions();
+        applyVeliTheme();
         refreshUiState();
         VeliGitHubUpdater.checkUpdates(this, false);
     }
 
+    private void applyVeliTheme() {
+        VeliThemeHelper.Palette p = VeliThemeHelper.getPalette(this);
+        VeliThemeHelper.applyWindowAndSurface(this, scrollRootVeliMain);
+        if (layoutVeliHeaderCard != null) {
+            layoutVeliHeaderCard.setBackground(VeliThemeHelper.createHeaderDrawable(this));
+        }
+        btnScanQrCode.setBackground(VeliThemeHelper.createButtonDrawable(this, p.accent));
+        btnScanNetworkIps.setBackground(VeliThemeHelper.createButtonDrawable(this, p.primary));
+        btnVeliCheckUpdate.setBackground(VeliThemeHelper.createButtonDrawable(this, p.secondary));
+    }
+
+    /**
+     * Sağ üstteki "⚙️ Rol / Ayar" butonuna tıklandığında Veli Rolü (Anne/Baba) ve
+     * 7 farklı Olgun Tema Seçeneğini sunar.
+     */
     private void showRoleAndSettingsDialog() {
-        String currentRole = VeliStorage.getParentRole(this);
-        final String[] options = new String[]{
-                "👩 Anne Olarak Kullan",
-                "👨 Baba Olarak Kullan",
-                "🔍 Ağdaki Tüm Öğrenci Cihazlarını Otomatik Bul ve Ekle",
-                "⚙️ GitHub Otomatik Güncelleme Deposu Ayarı"
-        };
+        int pad = (int) (18 * getResources().getDisplayMetrics().density);
+        ScrollView dialogScroll = new ScrollView(this);
+        LinearLayout container = new LinearLayout(this);
+        container.setOrientation(LinearLayout.VERTICAL);
+        container.setPadding(pad, pad / 2, pad, pad / 2);
+        dialogScroll.addView(container);
+
+        TextView tvRoleLabel = new TextView(this);
+        tvRoleLabel.setText("👨‍👩‍👧 Veli Rolü:");
+        tvRoleLabel.setTextSize(15f);
+        tvRoleLabel.setTextColor(0xFF0F172A);
+        container.addView(tvRoleLabel);
+
+        final RadioGroup rgRole = new RadioGroup(this);
+        RadioButton rbAnne = new RadioButton(this);
+        rbAnne.setId(3001);
+        rbAnne.setText("👩 Anne Olarak Kullan");
+        RadioButton rbBaba = new RadioButton(this);
+        rbBaba.setId(3002);
+        rbBaba.setText("👨 Baba Olarak Kullan");
+        rgRole.addView(rbAnne);
+        rgRole.addView(rbBaba);
+        if ("BABA".equalsIgnoreCase(VeliStorage.getParentRole(this))) {
+            rbBaba.setChecked(true);
+        } else {
+            rbAnne.setChecked(true);
+        }
+        container.addView(rgRole);
+
+        TextView tvThemeLabel = new TextView(this);
+        tvThemeLabel.setText("\n🎨 Olgun Tema Seçimi:");
+        tvThemeLabel.setTextSize(15f);
+        tvThemeLabel.setTextColor(0xFF0F172A);
+        container.addView(tvThemeLabel);
+
+        final RadioGroup rgThemes = new RadioGroup(this);
+        rgThemes.setOrientation(RadioGroup.VERTICAL);
+        final String[] keys = VeliThemeHelper.ALL_THEME_KEYS;
+        final String[] titles = VeliThemeHelper.ALL_THEME_TITLES;
+        String currentTheme = VeliStorage.getThemeKey(this);
+
+        for (int i = 0; i < keys.length; i++) {
+            RadioButton rb = new RadioButton(this);
+            rb.setId(4000 + i);
+            rb.setText(titles[i]);
+            rb.setTextSize(14f);
+            rgThemes.addView(rb);
+            if (keys[i].equals(currentTheme)) {
+                rb.setChecked(true);
+            }
+        }
+        container.addView(rgThemes);
+
         new AlertDialog.Builder(this)
-                .setTitle("⚙️ Veli Ayarları (Mevcut: " + ("BABA".equals(currentRole) ? "Baba" : "Anne") + ")")
-                .setItems(options, (dialog, which) -> {
-                    if (which == 0) {
-                        VeliStorage.saveParentRole(VeliMainActivity.this, "ANNE");
-                        refreshUiState();
-                    } else if (which == 1) {
-                        VeliStorage.saveParentRole(VeliMainActivity.this, "BABA");
-                        refreshUiState();
-                    } else if (which == 2) {
-                        ParentBackgroundService.scanLanAndSyncChildren(VeliMainActivity.this, true, new Runnable() {
-                            @Override
-                            public void run() {
-                                renderChildrenCards();
-                                pollPairedChildrenStatus();
-                            }
-                        });
-                    } else if (which == 3) {
-                        VeliGitHubUpdater.showConfigureRepoDialog(VeliMainActivity.this);
+                .setTitle("⚙️ Veli Ayarları ve Tema")
+                .setView(dialogScroll)
+                .setPositiveButton("Kaydet", (dialog, which) -> {
+                    String newRole = (rgRole.getCheckedRadioButtonId() == 3002) ? "BABA" : "ANNE";
+                    VeliStorage.saveParentRole(VeliMainActivity.this, newRole);
+
+                    int checkedThemeId = rgThemes.getCheckedRadioButtonId();
+                    int idx = checkedThemeId - 4000;
+                    if (idx >= 0 && idx < keys.length) {
+                        VeliStorage.setThemeKey(VeliMainActivity.this, keys[idx]);
                     }
+                    applyVeliTheme();
+                    refreshUiState();
+                    Toast.makeText(VeliMainActivity.this, "✅ Veli ayarları ve tema güncellendi!", Toast.LENGTH_SHORT).show();
+                })
+                .setNeutralButton("GitHub Depo Ayarı", (dialog, which) -> {
+                    VeliGitHubUpdater.showConfigureRepoDialog(VeliMainActivity.this);
                 })
                 .setNegativeButton("Kapat", null)
                 .show();
@@ -186,11 +254,11 @@ public class VeliMainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        applyVeliTheme();
         refreshUiState();
         autoRefreshActive = true;
         uiHandler.removeCallbacks(liveStatusPoller);
         uiHandler.post(liveStatusPoller);
-        // Açılışta değişen IP adreslerini otomatik tara
         ParentBackgroundService.scanLanAndSyncChildren(this, false, new Runnable() {
             @Override
             public void run() {
@@ -225,6 +293,7 @@ public class VeliMainActivity extends Activity {
     private void renderChildrenCards() {
         layoutPairedChildrenList.removeAllViews();
         final List<VeliStorage.PairedChild> children = VeliStorage.getPairedChildren(this);
+        VeliThemeHelper.Palette p = VeliThemeHelper.getPalette(this);
         int pad = (int) (14 * getResources().getDisplayMetrics().density);
         int margin = (int) (12 * getResources().getDisplayMetrics().density);
 
@@ -252,7 +321,6 @@ public class VeliMainActivity extends Activity {
             card.setLayoutParams(cardLp);
             card.setPadding(pad, pad, pad, pad);
 
-            // Sol Kısım: Çocuğun Adı, Sınıfı, IP Adresi ve Canlı Durumu (Tıklanınca Detay/Takvim/Ödül açılır)
             LinearLayout infoCol = new LinearLayout(this);
             infoCol.setOrientation(LinearLayout.VERTICAL);
             LinearLayout.LayoutParams infoLp = new LinearLayout.LayoutParams(
@@ -267,8 +335,8 @@ public class VeliMainActivity extends Activity {
 
             TextView tvStatus = new TextView(this);
             tvStatus.setTag("status_" + child.childId);
-            tvStatus.setText(child.liveStatusText + "\n📡 IP: " + (child.ipAddress.isEmpty() ? "Taranıyor..." : child.ipAddress));
-            tvStatus.setTextColor(0xFF0D47A1);
+            tvStatus.setText(child.liveStatusText);
+            tvStatus.setTextColor(p.primary);
             tvStatus.setTextSize(13f);
             tvStatus.setPadding(0, pad / 3, 0, 0);
 
@@ -296,14 +364,13 @@ public class VeliMainActivity extends Activity {
                 return true;
             });
 
-            // Sağ Kısım: Kullanıcı İsminin Yanında Doğrudan "📞 Ara" Butonu (Onaya gerek kalmadan görüşme başlatır!)
             Button btnDirectAra = new Button(this);
             int btnWidth = (int) (96 * getResources().getDisplayMetrics().density);
             int btnHeight = (int) (52 * getResources().getDisplayMetrics().density);
             LinearLayout.LayoutParams btnLp = new LinearLayout.LayoutParams(btnWidth, btnHeight);
             btnLp.setMargins(pad / 2, 0, 0, 0);
             btnDirectAra.setLayoutParams(btnLp);
-            btnDirectAra.setBackgroundResource(R.drawable.btn_veli_green);
+            btnDirectAra.setBackground(VeliThemeHelper.createButtonDrawable(this, p.accent));
             btnDirectAra.setText("📞 Ara");
             btnDirectAra.setAllCaps(false);
             btnDirectAra.setTextColor(0xFFFFFFFF);
@@ -312,7 +379,7 @@ public class VeliMainActivity extends Activity {
 
             btnDirectAra.setOnClickListener(v -> {
                 if (child.ipAddress == null || child.ipAddress.isEmpty()) {
-                    Toast.makeText(VeliMainActivity.this, "Öğrenci IP adresi taranıyor, lütfen 2 saniye sonra tekrar basın.", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(VeliMainActivity.this, "Bağlantı kuruluyor, lütfen 1 saniye sonra tekrar basın.", Toast.LENGTH_SHORT).show();
                     ParentBackgroundService.scanLanAndSyncChildren(VeliMainActivity.this, false, null);
                     return;
                 }
@@ -320,7 +387,7 @@ public class VeliMainActivity extends Activity {
                 callIntent.putExtra("EXTRA_CHILD_ID", child.childId);
                 callIntent.putExtra("EXTRA_CHILD_NAME", child.userName);
                 callIntent.putExtra("EXTRA_CHILD_IP", child.ipAddress);
-                callIntent.putExtra("EXTRA_INCOMING_APPROVAL", false); // Onaysız doğrudan arama!
+                callIntent.putExtra("EXTRA_INCOMING_APPROVAL", false);
                 startActivity(callIntent);
             });
 
@@ -340,6 +407,8 @@ public class VeliMainActivity extends Activity {
                     try {
                         URL url = new URL("http://" + child.ipAddress + ":" + ParentBackgroundService.STUDENT_HTTP_PORT + "/status");
                         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                        conn.setRequestMethod("GET");
+                        conn.setRequestProperty("Connection", "close");
                         conn.setConnectTimeout(1500);
                         conn.setReadTimeout(1500);
                         if (conn.getResponseCode() == 200) {
@@ -350,6 +419,7 @@ public class VeliMainActivity extends Activity {
                                 sb.append(line);
                             }
                             reader.close();
+                            conn.disconnect();
 
                             JSONObject json = new JSONObject(sb.toString());
                             final String latestName = json.optString("userName", child.userName);
@@ -365,15 +435,15 @@ public class VeliMainActivity extends Activity {
                                 public void run() {
                                     View v = layoutPairedChildrenList.findViewWithTag("status_" + child.childId);
                                     if (v instanceof TextView) {
-                                        ((TextView) v).setText(phaseText + " (" + remFmt + ")\n📡 IP: " + child.ipAddress);
+                                        ((TextView) v).setText(phaseText + " (" + remFmt + ")");
                                     }
                                 }
                             });
                         } else {
+                            conn.disconnect();
                             throw new Exception("HTTP " + conn.getResponseCode());
                         }
                     } catch (Exception e) {
-                        // Cihazın IP adresi değişmiş olabilir -> arka planda otomatik IP taraması başlat
                         ParentBackgroundService.scanLanAndSyncChildren(VeliMainActivity.this, false, null);
                     }
                 }

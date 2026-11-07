@@ -9,9 +9,12 @@ import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.PowerManager;
 import android.provider.Settings;
 import android.view.View;
@@ -64,6 +67,28 @@ public class MainActivity extends Activity {
 
     private TimerForegroundService timerService;
     private boolean serviceBound = false;
+    private boolean waitingForWifiConnection = false;
+    private String pendingCallRoleAfterWifi = null;
+    private final Handler wifiWatchHandler = new Handler(Looper.getMainLooper());
+
+    private final Runnable wifiCheckRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (!waitingForWifiConnection) return;
+            if (LanSyncServer.isWifiConnected(MainActivity.this)) {
+                waitingForWifiConnection = false;
+                refreshDashboardUi();
+                if (pendingCallRoleAfterWifi != null) {
+                    String role = pendingCallRoleAfterWifi;
+                    pendingCallRoleAfterWifi = null;
+                    launchCallActivityNow(role);
+                }
+            } else {
+                tvParentConnectionStatus.setText("⏳ Bağlantı kuruluyor...");
+                wifiWatchHandler.postDelayed(this, 600L);
+            }
+        }
+    };
 
     private final ServiceConnection conn = new ServiceConnection() {
         @Override
@@ -117,14 +142,13 @@ public class MainActivity extends Activity {
         btnTestVoice = findViewById(R.id.btnTestVoice);
         btnCheckUpdate = findViewById(R.id.btnCheckUpdate);
 
-        // 1. Sınıf .. 8. Sınıf Seçenekleri (Varsayılan: 4. Sınıf)
         ArrayAdapter<String> gradeAdapter = new ArrayAdapter<>(
                 this,
                 android.R.layout.simple_spinner_dropdown_item,
                 StudyDatabaseHelper.GRADE_LABELS
         );
         spinnerOnboardGrade.setAdapter(gradeAdapter);
-        spinnerOnboardGrade.setSelection(3); // 4. Sınıf varsayılan seçili
+        spinnerOnboardGrade.setSelection(3); // 4. Sınıf varsayılan
 
         tvAppVersionInfo.setText("Çalışma Zamanlayıcı v" + BuildConfig.VERSION_NAME
                 + " (Kod: " + BuildConfig.VERSION_CODE + ") • Android 6+ Uyumlu");
@@ -204,7 +228,6 @@ public class MainActivity extends Activity {
             return true;
         });
 
-        // Servisi başlatarak LAN senkronizasyon sunucusunu aktif tut
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(new Intent(this, TimerForegroundService.class));
         } else {
@@ -216,7 +239,51 @@ public class MainActivity extends Activity {
         GitHubUpdater.checkUpdates(this, false);
     }
 
-    private void startOutgoingCallToParent(String role) {
+    /**
+     * Çocuk Anne'ye veya Baba'ya çağrı göndermek istediğinde:
+     * Wi-Fi kapalıysa "Wi-Fi açılsın mı?" diye sorar, Evet'e tıklanınca Wi-Fi açılır ve
+     * ekranda "Bağlantı kuruluyor..." yazar; bağlantı kurulunca çağrıyı başlatır.
+     */
+    private void startOutgoingCallToParent(final String role) {
+        if (!LanSyncServer.isWifiConnected(this)) {
+            new AlertDialog.Builder(this)
+                    .setTitle("📶 Wi-Fi Bağlantısı Kapalı")
+                    .setMessage("Wi-Fi açılsın mı?")
+                    .setPositiveButton("Evet", (dialog, which) -> {
+                        enableWifiAndConnectThenCall(role);
+                    })
+                    .setNegativeButton("Hayır", null)
+                    .show();
+            return;
+        }
+        launchCallActivityNow(role);
+    }
+
+    @SuppressWarnings("deprecation")
+    private void enableWifiAndConnectThenCall(String role) {
+        waitingForWifiConnection = true;
+        pendingCallRoleAfterWifi = role;
+        tvParentConnectionStatus.setText("⏳ Bağlantı kuruluyor...");
+        Toast.makeText(this, "⏳ Bağlantı kuruluyor...", Toast.LENGTH_SHORT).show();
+
+        try {
+            WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            boolean toggled = false;
+            if (wm != null) {
+                toggled = wm.setWifiEnabled(true);
+            }
+            if (!toggled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                Intent panelIntent = new Intent(Settings.Panel.ACTION_WIFI);
+                startActivity(panelIntent);
+            }
+        } catch (Exception ignored) {
+        }
+
+        wifiWatchHandler.removeCallbacks(wifiCheckRunnable);
+        wifiWatchHandler.postDelayed(wifiCheckRunnable, 500L);
+    }
+
+    private void launchCallActivityNow(String role) {
         Intent callIntent = new Intent(this, CallActivity.class);
         callIntent.putExtra("EXTRA_PARENT_ROLE", role);
         callIntent.putExtra("EXTRA_DIRECT_CONNECTED", false);
@@ -252,17 +319,13 @@ public class MainActivity extends Activity {
         btnCheckUpdate.setBackground(ThemeHelper.createButtonDrawable(this, p.secondary));
     }
 
-    /**
-     * Sağ üstteki "⚙️ Ayarlar" butonuna tıklandığında açılan Uygulama Ayarları:
-     * - Kullanıcı İsmi
-     * - Sınıf Seçimi (1. Sınıf .. 8. Sınıf)
-     * - Tema Rengi Seçimi
-     */
     private void showAppSettingsDialog() {
         int pad = (int) (18 * getResources().getDisplayMetrics().density);
+        ScrollView dialogScroll = new ScrollView(this);
         LinearLayout container = new LinearLayout(this);
         container.setOrientation(LinearLayout.VERTICAL);
         container.setPadding(pad, pad / 2, pad, pad / 2);
+        dialogScroll.addView(container);
 
         TextView tvNameLabel = new TextView(this);
         tvNameLabel.setText("👤 Kullanıcı İsmi:");
@@ -291,7 +354,7 @@ public class MainActivity extends Activity {
         container.addView(spGrade);
 
         TextView tvThemeLabel = new TextView(this);
-        tvThemeLabel.setText("\n🎨 Tema Rengi Seçimi:");
+        tvThemeLabel.setText("\n🎨 Neşeli Tema Rengi Seçimi:");
         tvThemeLabel.setTextSize(15f);
         tvThemeLabel.setTextColor(0xFF1F2937);
         container.addView(tvThemeLabel);
@@ -299,20 +362,8 @@ public class MainActivity extends Activity {
         final RadioGroup rgThemes = new RadioGroup(this);
         rgThemes.setOrientation(RadioGroup.VERTICAL);
 
-        final String[] themeKeys = new String[]{
-                ThemeHelper.THEME_BLUE,
-                ThemeHelper.THEME_PINK,
-                ThemeHelper.THEME_GREEN,
-                ThemeHelper.THEME_PURPLE,
-                ThemeHelper.THEME_ORANGE
-        };
-        final String[] themeTitles = new String[]{
-                "🔵 Mavi Tonları (Erkek Varsayılanı)",
-                "🌸 Pembe Tonları (Kız Varsayılanı)",
-                "🟢 Yeşil Tonları (Doğa Yeşili)",
-                "🟣 Mor Tonları (Galaksi Moru)",
-                "🟠 Turuncu Tonları (Enerjik Mercan)"
-        };
+        final String[] themeKeys = ThemeHelper.ALL_THEME_KEYS;
+        final String[] themeTitles = ThemeHelper.ALL_THEME_TITLES;
 
         String currentTheme = StudyDatabaseHelper.getThemeKey(this);
         for (int i = 0; i < themeKeys.length; i++) {
@@ -329,7 +380,7 @@ public class MainActivity extends Activity {
 
         new AlertDialog.Builder(this)
                 .setTitle("⚙️ Uygulama Ayarları")
-                .setView(container)
+                .setView(dialogScroll)
                 .setPositiveButton("Kaydet", (dialog, which) -> {
                     String newName = etUserName.getText().toString().trim();
                     if (!newName.isEmpty()) {
@@ -345,7 +396,7 @@ public class MainActivity extends Activity {
                     }
                     applyCurrentTheme();
                     refreshDashboardUi();
-                    Toast.makeText(MainActivity.this, "✅ Ayarlar kaydedildi!", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(MainActivity.this, "✅ Ayarlar ve tema kaydedildi!", Toast.LENGTH_SHORT).show();
                 })
                 .setNeutralButton("GitHub Depo Ayarı", (dialog, which) -> {
                     GitHubUpdater.showConfigureRepoDialog(MainActivity.this);
@@ -406,6 +457,13 @@ public class MainActivity extends Activity {
         super.onStop();
     }
 
+    @Override
+    protected void onDestroy() {
+        waitingForWifiConnection = false;
+        wifiWatchHandler.removeCallbacks(wifiCheckRunnable);
+        super.onDestroy();
+    }
+
     private void refreshDashboardUi() {
         if (!StudyDatabaseHelper.isUserOnboarded(this)) {
             layoutOnboardingContainer.setVisibility(View.VISIBLE);
@@ -444,13 +502,19 @@ public class MainActivity extends Activity {
             tvCycleMemoryInfo.setText("⏱️ 40 Dakikalık Çalışma Döngüsü: Tam 40 dakika ile başlamaya hazır!");
         }
 
-        String localIp = LanSyncServer.getLocalIpAddress(this);
-        String anneIp = StudyDatabaseHelper.getPairedParentIp(this, "ANNE");
-        String babaIp = StudyDatabaseHelper.getPairedParentIp(this, "BABA");
-        StringBuilder parentInfo = new StringBuilder("📡 Cihaz Ağ IP: " + localIp);
-        if (!anneIp.isEmpty()) parentInfo.append(" • 👩 Anne Eşleşti");
-        if (!babaIp.isEmpty()) parentInfo.append(" • 👨 Baba Eşleşti");
-        tvParentConnectionStatus.setText(parentInfo.toString());
+        // Cihaz Ağ IP yazısı kaldırıldı! Wi-Fi kapalıysa "Wi-Fi bağlantısını aç" yazar.
+        if (waitingForWifiConnection) {
+            tvParentConnectionStatus.setText("⏳ Bağlantı kuruluyor...");
+        } else if (!LanSyncServer.isWifiConnected(this)) {
+            tvParentConnectionStatus.setText("⚠️ Wi-Fi bağlantısını aç");
+        } else {
+            String anneIp = StudyDatabaseHelper.getPairedParentIp(this, "ANNE");
+            String babaIp = StudyDatabaseHelper.getPairedParentIp(this, "BABA");
+            StringBuilder parentInfo = new StringBuilder("🟢 Wi-Fi Bağlantısı Aktif");
+            if (!anneIp.isEmpty()) parentInfo.append(" • 👩 Anne Eşleşti");
+            if (!babaIp.isEmpty()) parentInfo.append(" • 👨 Baba Eşleşti");
+            tvParentConnectionStatus.setText(parentInfo.toString());
+        }
 
         if (serviceBound && timerService != null && timerService.getCurrentPhase() != TimerForegroundService.PHASE_IDLE) {
             btnResumeActiveTimer.setVisibility(View.VISIBLE);

@@ -295,48 +295,76 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
 
     private void handleHttpClient(Socket client) {
         try {
-            client.setSoTimeout(5000);
+            client.setSoTimeout(4000);
+            client.setTcpNoDelay(true);
             String remoteIp = client.getInetAddress().getHostAddress();
-            BufferedReader reader = new BufferedReader(new InputStreamReader(client.getInputStream(), "UTF-8"));
-            String requestLine = reader.readLine();
-            if (requestLine == null || requestLine.isEmpty()) {
+            java.io.InputStream in = client.getInputStream();
+
+            java.io.ByteArrayOutputStream headerBuf = new java.io.ByteArrayOutputStream();
+            int b;
+            int state = 0;
+            while ((b = in.read()) != -1) {
+                headerBuf.write(b);
+                if ((state == 0 || state == 2) && b == '\r') {
+                    state++;
+                } else if ((state == 1 || state == 3) && b == '\n') {
+                    state++;
+                    if (state == 4) break;
+                } else {
+                    state = 0;
+                }
+                if (headerBuf.size() > 8192) break;
+            }
+
+            String headerStr = new String(headerBuf.toByteArray(), "UTF-8");
+            String[] lines = headerStr.split("\\r\\n");
+            if (lines.length == 0 || lines[0].isEmpty()) {
                 client.close();
                 return;
             }
-            String[] reqParts = requestLine.split(" ");
-            String path = reqParts.length > 1 ? reqParts[1] : "/";
+            String[] reqParts = lines[0].split(" ");
+            String fullUri = reqParts.length > 1 ? reqParts[1] : "/";
+            android.net.Uri parsedUri = android.net.Uri.parse("http://localhost" + fullUri);
+            String path = parsedUri.getPath() != null ? parsedUri.getPath() : "/";
 
             int contentLength = 0;
-            String headerLine;
-            while ((headerLine = reader.readLine()) != null && !headerLine.isEmpty()) {
-                if (headerLine.toLowerCase(Locale.US).startsWith("content-length:")) {
+            for (int i = 1; i < lines.length; i++) {
+                String h = lines[i];
+                if (h.toLowerCase(Locale.US).startsWith("content-length:")) {
                     try {
-                        contentLength = Integer.parseInt(headerLine.substring(15).trim());
+                        contentLength = Integer.parseInt(h.substring(15).trim());
                     } catch (Exception ignored) {
                     }
                 }
             }
 
             String body = "";
-            if (contentLength > 0) {
-                char[] bodyChars = new char[contentLength];
+            if (contentLength > 0 && contentLength < 65536) {
+                byte[] bodyBytes = new byte[contentLength];
                 int totalRead = 0;
                 while (totalRead < contentLength) {
-                    int r = reader.read(bodyChars, totalRead, contentLength - totalRead);
+                    int r = in.read(bodyBytes, totalRead, contentLength - totalRead);
                     if (r == -1) break;
                     totalRead += r;
                 }
-                body = new String(bodyChars, 0, totalRead);
+                body = new String(bodyBytes, 0, totalRead, "UTF-8");
             }
 
             JSONObject resp = new JSONObject();
             resp.put("ok", true);
 
             if (path.startsWith("/incoming_call_from_child")) {
-                JSONObject req = body.isEmpty() ? new JSONObject() : new JSONObject(body);
-                String childId = req.optString("childId", "");
-                String childName = req.optString("childName", "Öğrenci");
-                String childIp = req.optString("childIp", remoteIp);
+                String childId = parsedUri.getQueryParameter("childId");
+                String childName = parsedUri.getQueryParameter("childName");
+                String childIp = parsedUri.getQueryParameter("childIp");
+                if ((childName == null || childName.isEmpty()) && !body.isEmpty()) {
+                    JSONObject req = new JSONObject(body);
+                    childId = req.optString("childId", "");
+                    childName = req.optString("childName", "Öğrenci");
+                    childIp = req.optString("childIp", remoteIp);
+                }
+                if (childId == null) childId = "";
+                if (childName == null || childName.isEmpty()) childName = "Öğrenci";
                 if (childIp == null || childIp.isEmpty()) childIp = remoteIp;
 
                 if (!childId.isEmpty()) {
