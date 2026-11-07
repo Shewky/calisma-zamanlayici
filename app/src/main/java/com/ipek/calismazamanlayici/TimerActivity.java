@@ -1,3 +1,4 @@
+
 package com.ipek.calismazamanlayici;
 
 import android.app.Activity;
@@ -132,7 +133,7 @@ public class TimerActivity extends Activity {
         tvCountdownClock.setText(StudyDatabaseHelper.formatClock(remaining));
         tvSubjectElapsedInfo.setText("Bu derste geçen süre: " + StudyDatabaseHelper.formatClock(subjectElapsed)
                 + "\n40 dk döngüsünde toplam: " + StudyDatabaseHelper.formatClock(carriedCycle));
-        tvLastAnnouncementText.setText("🔊 Son Sesli Anons: "" + timerService.getLastAnnouncement() + """);
+        tvLastAnnouncementText.setText("🔊 Son Sesli Anons: '" + timerService.getLastAnnouncement() + "'");
 
         if (StudyDatabaseHelper.MODE_TEST.equals(mode)) {
             btnFinishCurrentSubject.setText("✅ Bu dersin testi bitti (veya Ödevi Bitti)");
