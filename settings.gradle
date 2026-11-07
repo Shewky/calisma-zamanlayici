@@ -13,4 +13,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "CalismaZamanlayici"
-include ':app'
+include ':app', ':veli'

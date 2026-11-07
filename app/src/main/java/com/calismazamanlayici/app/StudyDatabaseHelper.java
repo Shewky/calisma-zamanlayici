@@ -7,6 +7,8 @@ import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
 
+import org.json.JSONArray;
+
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -16,11 +18,12 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Random;
 import java.util.Set;
+import java.util.UUID;
 
 public class StudyDatabaseHelper extends SQLiteOpenHelper {
 
     private static final String DB_NAME = "calisma_zamanlayici_takvim.db";
-    private static final int DB_VERSION = 2;
+    private static final int DB_VERSION = 3;
 
     public static final String TABLE_SESSIONS = "study_sessions";
     public static final String COL_ID = "_id";
@@ -33,24 +36,28 @@ public class StudyDatabaseHelper extends SQLiteOpenHelper {
     private static final String PREFS_NAME = "CalismaZamanlayiciPrefs";
     private static final String KEY_ONBOARDED = "user_onboarded";
     private static final String KEY_USER_NAME = "user_name";
-    private static final String KEY_USER_GENDER = "user_gender"; // "GIRL" or "BOY"
+    private static final String KEY_USER_GENDER = "user_gender";
+    private static final String KEY_GRADE_LEVEL = "user_grade_level"; // 1..8
     private static final String KEY_THEME_COLOR = "theme_color_key";
     private static final String KEY_CARRIED_SECONDS = "carried_cycle_seconds";
     private static final String KEY_CARRIED_DATE = "carried_cycle_date";
     private static final String KEY_LAST_SUBJECT = "last_studied_subject";
     private static final String KEY_LAST_MODE = "last_studied_mode";
     private static final String KEY_GITHUB_REPO = "custom_github_repo";
+    private static final String KEY_CHILD_DEVICE_ID = "child_unique_device_id";
+    private static final String KEY_SUBJECTS_PREFIX = "custom_subjects_grade_";
+    private static final String KEY_PARENT_IP_PREFIX = "paired_parent_ip_"; // ANNE or BABA
 
     public static final int FULL_STUDY_CYCLE_SECONDS = 40 * 60; // 40 Dakika
     public static final int FULL_BREAK_CYCLE_SECONDS = 10 * 60; // 10 Dakika
-    public static final int BREAK_WARNING_REMAINING_SECONDS = 60; // Son 1 dakika kala "Mola bitmek üzere" uyarısı
+    public static final int BREAK_WARNING_REMAINING_SECONDS = 60;
 
     public static final String MODE_HOMEWORK = "Ödev";
     public static final String MODE_TEST = "Test Çözümü";
     public static final String MODE_BOOK = "Kitap Okuma";
 
-    // Matematik dersinden hemen sonra Fen Bilimleri eklendi (Hem Ödev hem Test için ortak)
-    public static final String[] FOURTH_GRADE_SUBJECTS = new String[]{
+    // Varsayılan 4. Sınıf Dersleri (Matematik'ten hemen sonra Fen Bilimleri dahil)
+    public static final String[] DEFAULT_FOURTH_GRADE_SUBJECTS = new String[]{
             "Türkçe",
             "Matematik",
             "Fen Bilimleri",
@@ -59,6 +66,11 @@ public class StudyDatabaseHelper extends SQLiteOpenHelper {
             "Din Kültürü",
             "Trafik Güvenliği",
             "İnsan Hakları"
+    };
+
+    public static final String[] GRADE_LABELS = new String[]{
+            "1. Sınıf", "2. Sınıf", "3. Sınıf", "4. Sınıf",
+            "5. Sınıf", "6. Sınıf", "7. Sınıf", "8. Sınıf"
     };
 
     private static final String[] RANDOM_WELCOME_WISHES = new String[]{
@@ -115,7 +127,28 @@ public class StudyDatabaseHelper extends SQLiteOpenHelper {
 
     @Override
     public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-        // Güncellemelerde çalışma takvimi ve ödül verileri korunur.
+    }
+
+    public static String getChildDeviceId(Context context) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        String id = prefs.getString(KEY_CHILD_DEVICE_ID, "");
+        if (id == null || id.isEmpty()) {
+            id = "CZ" + UUID.randomUUID().toString().replace("-", "").substring(0, 10).toUpperCase(Locale.US);
+            prefs.edit().putString(KEY_CHILD_DEVICE_ID, id).apply();
+        }
+        return id;
+    }
+
+    public static void setPairedParentIp(Context context, String role, String ip) {
+        if (role == null || ip == null || ip.isEmpty()) return;
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        prefs.edit().putString(KEY_PARENT_IP_PREFIX + role.toUpperCase(Locale.US), ip.trim()).apply();
+    }
+
+    public static String getPairedParentIp(Context context, String role) {
+        if (role == null) return "";
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        return prefs.getString(KEY_PARENT_IP_PREFIX + role.toUpperCase(Locale.US), "");
     }
 
     public static boolean isUserOnboarded(Context context) {
@@ -123,8 +156,9 @@ public class StudyDatabaseHelper extends SQLiteOpenHelper {
         return prefs.getBoolean(KEY_ONBOARDED, false);
     }
 
-    public static void saveOnboardingProfile(Context context, String userName, boolean isGirl) {
+    public static void saveOnboardingProfile(Context context, String userName, int gradeLevel, boolean isGirl) {
         String cleanName = (userName != null && !userName.trim().isEmpty()) ? userName.trim() : "Öğrenci";
+        if (gradeLevel < 1 || gradeLevel > 8) gradeLevel = 4;
         String gender = isGirl ? "GIRL" : "BOY";
         String defaultTheme = isGirl ? ThemeHelper.THEME_PINK : ThemeHelper.THEME_BLUE;
 
@@ -132,6 +166,7 @@ public class StudyDatabaseHelper extends SQLiteOpenHelper {
         prefs.edit()
                 .putBoolean(KEY_ONBOARDED, true)
                 .putString(KEY_USER_NAME, cleanName)
+                .putInt(KEY_GRADE_LEVEL, gradeLevel)
                 .putString(KEY_USER_GENDER, gender)
                 .putString(KEY_THEME_COLOR, defaultTheme)
                 .apply();
@@ -150,6 +185,87 @@ public class StudyDatabaseHelper extends SQLiteOpenHelper {
         if (userName == null || userName.trim().isEmpty()) return;
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         prefs.edit().putString(KEY_USER_NAME, userName.trim()).apply();
+    }
+
+    public static int getGradeLevel(Context context) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        int g = prefs.getInt(KEY_GRADE_LEVEL, 4);
+        if (g < 1 || g > 8) g = 4;
+        return g;
+    }
+
+    public static void setGradeLevel(Context context, int gradeLevel) {
+        if (gradeLevel < 1 || gradeLevel > 8) gradeLevel = 4;
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        prefs.edit().putInt(KEY_GRADE_LEVEL, gradeLevel).apply();
+    }
+
+    /**
+     * Seçili sınıfa ait ders listesini döndürür.
+     * 4. sınıfta varsayılan olarak bizim eklediğimiz 8 ders otomatik gelir.
+     * Kullanıcı dilediği sınıfta yeni ders ekleyebilir veya silebilir.
+     */
+    public static List<String> getSubjectsForCurrentGrade(Context context) {
+        int grade = getGradeLevel(context);
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        String key = KEY_SUBJECTS_PREFIX + grade;
+        String jsonStr = prefs.getString(key, null);
+
+        List<String> list = new ArrayList<>();
+        if (jsonStr != null) {
+            try {
+                JSONArray arr = new JSONArray(jsonStr);
+                for (int i = 0; i < arr.length(); i++) {
+                    String s = arr.optString(i, "").trim();
+                    if (!s.isEmpty()) list.add(s);
+                }
+                return list;
+            } catch (Exception ignored) {
+            }
+        }
+
+        // Eğer 4. sınıf ise varsayılan dersler otomatik gelsin
+        if (grade == 4) {
+            for (String s : DEFAULT_FOURTH_GRADE_SUBJECTS) {
+                list.add(s);
+            }
+            saveSubjectsForGrade(context, grade, list);
+        }
+        return list;
+    }
+
+    public static void saveSubjectsForGrade(Context context, int grade, List<String> subjects) {
+        JSONArray arr = new JSONArray();
+        for (String s : subjects) {
+            if (s != null && !s.trim().isEmpty()) {
+                arr.put(s.trim());
+            }
+        }
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        prefs.edit().putString(KEY_SUBJECTS_PREFIX + grade, arr.toString()).apply();
+    }
+
+    public static void addSubjectToCurrentGrade(Context context, String newSubject) {
+        if (newSubject == null || newSubject.trim().isEmpty()) return;
+        String clean = newSubject.trim();
+        int grade = getGradeLevel(context);
+        List<String> current = getSubjectsForCurrentGrade(context);
+        for (String existing : current) {
+            if (existing.equalsIgnoreCase(clean)) {
+                return;
+            }
+        }
+        current.add(clean);
+        saveSubjectsForGrade(context, grade, current);
+    }
+
+    public static void removeSubjectFromCurrentGrade(Context context, int index) {
+        int grade = getGradeLevel(context);
+        List<String> current = getSubjectsForCurrentGrade(context);
+        if (index >= 0 && index < current.size()) {
+            current.remove(index);
+            saveSubjectsForGrade(context, grade, current);
+        }
     }
 
     public static String getThemeKey(Context context) {
@@ -219,6 +335,35 @@ public class StudyDatabaseHelper extends SQLiteOpenHelper {
                 null,
                 null,
                 COL_ID + " DESC"
+        );
+        if (cursor != null) {
+            while (cursor.moveToNext()) {
+                SessionRecord rec = new SessionRecord();
+                rec.id = cursor.getLong(cursor.getColumnIndexOrThrow(COL_ID));
+                rec.date = cursor.getString(cursor.getColumnIndexOrThrow(COL_DATE));
+                rec.time = cursor.getString(cursor.getColumnIndexOrThrow(COL_TIME));
+                rec.mode = cursor.getString(cursor.getColumnIndexOrThrow(COL_MODE));
+                rec.subject = cursor.getString(cursor.getColumnIndexOrThrow(COL_SUBJECT));
+                rec.durationSeconds = cursor.getInt(cursor.getColumnIndexOrThrow(COL_DURATION));
+                list.add(rec);
+            }
+            cursor.close();
+        }
+        return list;
+    }
+
+    public List<SessionRecord> getRecentSessions(int limit) {
+        List<SessionRecord> list = new ArrayList<>();
+        SQLiteDatabase db = getReadableDatabase();
+        Cursor cursor = db.query(
+                TABLE_SESSIONS,
+                null,
+                null,
+                null,
+                null,
+                null,
+                COL_ID + " DESC",
+                String.valueOf(limit)
         );
         if (cursor != null) {
             while (cursor.moveToNext()) {

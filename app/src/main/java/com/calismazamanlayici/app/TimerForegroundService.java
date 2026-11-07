@@ -60,6 +60,7 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
     private Handler handler;
     private PowerManager.WakeLock wakeLock;
     private TextToSpeech tts;
+    private LanSyncServer lanSyncServer;
     private boolean ttsReady = false;
     private String pendingSpeech = null;
 
@@ -117,6 +118,8 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
         createNotificationChannel();
         acquireWakeLock();
         tts = new TextToSpeech(getApplicationContext(), this);
+        lanSyncServer = new LanSyncServer(this);
+        lanSyncServer.start();
     }
 
     @Override
@@ -570,6 +573,9 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
     @Override
     public void onDestroy() {
         handler.removeCallbacks(tickRunnable);
+        if (lanSyncServer != null) {
+            lanSyncServer.stop();
+        }
         if (tts != null) {
             tts.stop();
             tts.shutdown();

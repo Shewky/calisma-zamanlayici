@@ -1,0 +1,218 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true"
+    android:background="@color/veli_bg">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="18dp">
+
+        <!-- VELİ İLK GİRİŞ (ANNE / BABA SEÇİMİ) EKRANI -->
+        <LinearLayout
+            android:id="@+id/layoutVeliOnboarding"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_veli_card"
+            android:orientation="vertical"
+            android:padding="22dp"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="👨‍👩‍👧 Çalışma Zamanlayıcı Veli Uygulaması"
+                android:textColor="@color/veli_text_dark"
+                android:textSize="21sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Lütfen uygulamaya giriş yapacağınız veli rolünü seçin:"
+                android:textColor="@color/veli_text_muted"
+                android:textSize="15sp" />
+
+            <RadioGroup
+                android:id="@+id/rgVeliRole"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:orientation="vertical">
+
+                <RadioButton
+                    android:id="@+id/rbRoleAnne"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:checked="true"
+                    android:text="👩 Anne Olarak Giriş Yap"
+                    android:textColor="@color/veli_text_dark"
+                    android:textSize="17sp" />
+
+                <RadioButton
+                    android:id="@+id/rbRoleBaba"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:text="👨 Baba Olarak Giriş Yap"
+                    android:textColor="@color/veli_text_dark"
+                    android:textSize="17sp" />
+            </RadioGroup>
+
+            <Button
+                android:id="@+id/btnSaveVeliRole"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:layout_marginTop="18dp"
+                android:background="@drawable/btn_veli_blue"
+                android:text="🚀 Veli Girişini Tamamla"
+                android:textAllCaps="false"
+                android:textColor="#FFFFFF"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <!-- VELİ ANA PANELİ -->
+        <LinearLayout
+            android:id="@+id/layoutVeliDashboard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <!-- Üst Başlık Kartı -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_veli_header"
+                android:orientation="vertical"
+                android:padding="20dp"
+                android:layout_marginBottom="14dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/tvVeliHeaderTitle"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="👨‍👩‍👧 Veli Kontrol Paneli"
+                        android:textColor="#FFFFFF"
+                        android:textSize="21sp"
+                        android:textStyle="bold" />
+
+                    <Button
+                        android:id="@+id/btnChangeVeliRole"
+                        android:layout_width="wrap_content"
+                        android:layout_height="38dp"
+                        android:background="#33FFFFFF"
+                        android:paddingStart="12dp"
+                        android:paddingEnd="12dp"
+                        android:text="⚙️ Rol / Ayar"
+                        android:textAllCaps="false"
+                        android:textColor="#FFFFFF"
+                        android:textSize="13sp" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/tvVeliSubInfo"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="Aynı Wi-Fi ağındaki çocuklarınızın karekodunu okutarak takip edebilir, övgü gönderebilir ve sesli arayabilirsiniz."
+                    android:textColor="#E2E8F0"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <!-- Karekod Okut ve IP Taraması Butonları -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:weightSum="2"
+                android:layout_marginBottom="14dp">
+
+                <Button
+                    android:id="@+id/btnScanQrCode"
+                    android:layout_width="0dp"
+                    android:layout_height="58dp"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="6dp"
+                    android:background="@drawable/btn_veli_green"
+                    android:text="📷 Karekod Okut (Çocuk Ekle)"
+                    android:textAllCaps="false"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <Button
+                    android:id="@+id/btnScanNetworkIps"
+                    android:layout_width="0dp"
+                    android:layout_height="58dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="6dp"
+                    android:background="@drawable/btn_veli_blue"
+                    android:text="🔄 Ağdaki IP'leri Tara &amp; Yenile"
+                    android:textAllCaps="false"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <!-- Eşleştirilmiş Çocuklar Listesi Başlığı -->
+            <TextView
+                android:id="@+id/tvChildrenListHeader"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:text="👧👦 Takip Edilen Çocuklar (Detay için isme tıklayın, aramak için 'Ara'ya basın):"
+                android:textColor="@color/veli_text_dark"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <!-- Çocuk Kartlarının Ekleneceği Alan -->
+            <LinearLayout
+                android:id="@+id/layoutPairedChildrenList"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginBottom="14dp" />
+
+            <!-- Alt Güncelleme Kontrolü -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_veli_card"
+                android:orientation="vertical"
+                android:padding="14dp">
+
+                <TextView
+                    android:id="@+id/tvVeliVersionInfo"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Veli Uygulaması v3.0 • Arka Plan Çağrı Dinleme Aktif"
+                    android:textColor="@color/veli_text_muted"
+                    android:textSize="13sp"
+                    android:layout_marginBottom="8dp" />
+
+                <Button
+                    android:id="@+id/btnVeliCheckUpdate"
+                    android:layout_width="match_parent"
+                    android:layout_height="46dp"
+                    android:background="@drawable/btn_veli_blue"
+                    android:text="🔄 GitHub Üzerinden Veli Uygulamasını Güncelle"
+                    android:textAllCaps="false"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp" />
+            </LinearLayout>
+
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>

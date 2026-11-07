@@ -79,9 +79,11 @@ public class GitHubUpdater {
                         for (int i = 0; i < assets.length(); i++) {
                             JSONObject asset = assets.getJSONObject(i);
                             String name = asset.optString("name", "");
-                            if (name.endsWith(".apk")) {
+                            if (BuildConfig.APK_ASSET_NAME.equalsIgnoreCase(name)) {
                                 foundApkUrl = asset.optString("browser_download_url", null);
                                 break;
+                            } else if (foundApkUrl == null && name.endsWith(".apk")) {
+                                foundApkUrl = asset.optString("browser_download_url", null);
                             }
                         }
                     }
@@ -147,7 +149,7 @@ public class GitHubUpdater {
     private static void showUpdateAvailableDialog(final Activity activity, String newTag, String notes, final String apkUrl) {
         new AlertDialog.Builder(activity)
                 .setTitle("🎉 Yeni Güncelleme Bulundu! (" + newTag + ")")
-                .setMessage("GitHub üzerinde yeni bir sürüm yayınlandı. Çalışma takvimi ve ödül verileri silinmeden mevcut uygulamanın üzerine güncellenecektir.\n\nDeğişiklikler:\n" + notes)
+                .setMessage("GitHub üzerinde yeni bir sürüm yayınlandı. Verileriniz silinmeden mevcut uygulamanın üzerine güncellenecektir.\n\nDeğişiklikler:\n" + notes)
                 .setPositiveButton("İndir ve Güncelle", (dialog, which) -> downloadAndInstallApk(activity, apkUrl))
                 .setNeutralButton("GitHub Repo Ayarı", (dialog, which) -> showConfigureRepoDialog(activity))
                 .setNegativeButton("Daha Sonra", null)

@@ -15,14 +15,19 @@ import android.os.IBinder;
 import android.os.PowerManager;
 import android.provider.Settings;
 import android.view.View;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
 import android.widget.ScrollView;
+import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import java.util.ArrayList;
+import java.util.List;
 
 public class MainActivity extends Activity {
 
@@ -32,14 +37,18 @@ public class MainActivity extends Activity {
     private LinearLayout layoutMainHeaderCard;
 
     private EditText etOnboardName;
+    private Spinner spinnerOnboardGrade;
     private RadioButton rbOnboardGirl;
     private RadioButton rbOnboardBoy;
     private Button btnCompleteOnboarding;
 
     private TextView tvWelcomeUser;
+    private TextView tvWelcomeSub;
     private TextView tvTodaySummaryBanner;
     private TextView tvCycleMemoryInfo;
+    private TextView tvParentConnectionStatus;
     private TextView tvAppVersionInfo;
+
     private Button btnOpenSettings;
     private Button btnResumeActiveTimer;
     private Button btnStartHomework;
@@ -47,6 +56,9 @@ public class MainActivity extends Activity {
     private Button btnStartBookRead;
     private Button btnOpenCalendar;
     private Button btnOpenRewards;
+    private Button btnCallAnne;
+    private Button btnCallBaba;
+    private Button btnOpenParentQr;
     private Button btnTestVoice;
     private Button btnCheckUpdate;
 
@@ -80,24 +92,39 @@ public class MainActivity extends Activity {
         layoutMainHeaderCard = findViewById(R.id.layoutMainHeaderCard);
 
         etOnboardName = findViewById(R.id.etOnboardName);
+        spinnerOnboardGrade = findViewById(R.id.spinnerOnboardGrade);
         rbOnboardGirl = findViewById(R.id.rbOnboardGirl);
         rbOnboardBoy = findViewById(R.id.rbOnboardBoy);
         btnCompleteOnboarding = findViewById(R.id.btnCompleteOnboarding);
 
         tvWelcomeUser = findViewById(R.id.tvWelcomeUser);
+        tvWelcomeSub = findViewById(R.id.tvWelcomeSub);
         tvTodaySummaryBanner = findViewById(R.id.tvTodaySummaryBanner);
         tvCycleMemoryInfo = findViewById(R.id.tvCycleMemoryInfo);
+        tvParentConnectionStatus = findViewById(R.id.tvParentConnectionStatus);
         tvAppVersionInfo = findViewById(R.id.tvAppVersionInfo);
+
         btnOpenSettings = findViewById(R.id.btnOpenSettings);
         btnResumeActiveTimer = findViewById(R.id.btnResumeActiveTimer);
-
         btnStartHomework = findViewById(R.id.btnStartHomework);
         btnStartTest = findViewById(R.id.btnStartTest);
         btnStartBookRead = findViewById(R.id.btnStartBookRead);
         btnOpenCalendar = findViewById(R.id.btnOpenCalendar);
         btnOpenRewards = findViewById(R.id.btnOpenRewards);
+        btnCallAnne = findViewById(R.id.btnCallAnne);
+        btnCallBaba = findViewById(R.id.btnCallBaba);
+        btnOpenParentQr = findViewById(R.id.btnOpenParentQr);
         btnTestVoice = findViewById(R.id.btnTestVoice);
         btnCheckUpdate = findViewById(R.id.btnCheckUpdate);
+
+        // 1. Sınıf .. 8. Sınıf Seçenekleri (Varsayılan: 4. Sınıf)
+        ArrayAdapter<String> gradeAdapter = new ArrayAdapter<>(
+                this,
+                android.R.layout.simple_spinner_dropdown_item,
+                StudyDatabaseHelper.GRADE_LABELS
+        );
+        spinnerOnboardGrade.setAdapter(gradeAdapter);
+        spinnerOnboardGrade.setSelection(3); // 4. Sınıf varsayılan seçili
 
         tvAppVersionInfo.setText("Çalışma Zamanlayıcı v" + BuildConfig.VERSION_NAME
                 + " (Kod: " + BuildConfig.VERSION_CODE + ") • Android 6+ Uyumlu");
@@ -108,8 +135,9 @@ public class MainActivity extends Activity {
                 Toast.makeText(MainActivity.this, "Lütfen önce ismini yaz 😊", Toast.LENGTH_SHORT).show();
                 return;
             }
+            int selectedGrade = spinnerOnboardGrade.getSelectedItemPosition() + 1;
             boolean isGirl = rbOnboardGirl.isChecked();
-            StudyDatabaseHelper.saveOnboardingProfile(MainActivity.this, enteredName, isGirl);
+            StudyDatabaseHelper.saveOnboardingProfile(MainActivity.this, enteredName, selectedGrade, isGirl);
 
             applyCurrentTheme();
             refreshDashboardUi();
@@ -149,6 +177,18 @@ public class MainActivity extends Activity {
             startActivity(new Intent(MainActivity.this, TimerActivity.class));
         });
 
+        btnOpenParentQr.setOnClickListener(v -> {
+            startActivity(new Intent(MainActivity.this, ParentPairQrActivity.class));
+        });
+
+        btnCallAnne.setOnClickListener(v -> {
+            startOutgoingCallToParent("ANNE");
+        });
+
+        btnCallBaba.setOnClickListener(v -> {
+            startOutgoingCallToParent("BABA");
+        });
+
         btnTestVoice.setOnClickListener(v -> {
             String userName = StudyDatabaseHelper.getUserName(MainActivity.this);
             speakTextViaService("Merhaba " + userName + "! Sesli uyarı sistemi hazır. Başarılar dilerim!");
@@ -164,9 +204,19 @@ public class MainActivity extends Activity {
             return true;
         });
 
+        // Servisi başlatarak LAN senkronizasyon sunucusunu aktif tut
+        startService(new Intent(this, TimerForegroundService.class));
+
         requestNecessaryPermissions();
         applyCurrentTheme();
         GitHubUpdater.checkUpdates(this, false);
+    }
+
+    private void startOutgoingCallToParent(String role) {
+        Intent callIntent = new Intent(this, CallActivity.class);
+        callIntent.putExtra("EXTRA_PARENT_ROLE", role);
+        callIntent.putExtra("EXTRA_DIRECT_CONNECTED", false);
+        startActivity(callIntent);
     }
 
     private void speakTextViaService(String speech) {
@@ -189,12 +239,20 @@ public class MainActivity extends Activity {
         btnOpenCalendar.setBackground(ThemeHelper.createButtonDrawable(this, p.secondary));
         btnOpenRewards.setBackground(ThemeHelper.createButtonDrawable(this, p.primaryDark));
         btnResumeActiveTimer.setBackground(ThemeHelper.createButtonDrawable(this, p.accent));
+
+        btnCallAnne.setBackground(ThemeHelper.createButtonDrawable(this, p.primary));
+        btnCallBaba.setBackground(ThemeHelper.createButtonDrawable(this, p.secondary));
+        btnOpenParentQr.setBackground(ThemeHelper.createButtonDrawable(this, p.accent));
+
         btnTestVoice.setBackground(ThemeHelper.createButtonDrawable(this, p.primary));
         btnCheckUpdate.setBackground(ThemeHelper.createButtonDrawable(this, p.secondary));
     }
 
     /**
-     * Sağ üstteki "⚙️ Ayarlar" butonuna tıklandığında açılan Uygulama Ayarları ve Tema Seçimi penceresi.
+     * Sağ üstteki "⚙️ Ayarlar" butonuna tıklandığında açılan Uygulama Ayarları:
+     * - Kullanıcı İsmi
+     * - Sınıf Seçimi (1. Sınıf .. 8. Sınıf)
+     * - Tema Rengi Seçimi
      */
     private void showAppSettingsDialog() {
         int pad = (int) (18 * getResources().getDisplayMetrics().density);
@@ -211,6 +269,22 @@ public class MainActivity extends Activity {
         final EditText etUserName = new EditText(this);
         etUserName.setText(StudyDatabaseHelper.getUserName(this));
         container.addView(etUserName);
+
+        TextView tvGradeLabel = new TextView(this);
+        tvGradeLabel.setText("\n🎓 Sınıf Seçimi (1. - 8. Sınıf):");
+        tvGradeLabel.setTextSize(15f);
+        tvGradeLabel.setTextColor(0xFF1F2937);
+        container.addView(tvGradeLabel);
+
+        final Spinner spGrade = new Spinner(this);
+        ArrayAdapter<String> gradeAdapter = new ArrayAdapter<>(
+                this,
+                android.R.layout.simple_spinner_dropdown_item,
+                StudyDatabaseHelper.GRADE_LABELS
+        );
+        spGrade.setAdapter(gradeAdapter);
+        spGrade.setSelection(StudyDatabaseHelper.getGradeLevel(this) - 1);
+        container.addView(spGrade);
 
         TextView tvThemeLabel = new TextView(this);
         tvThemeLabel.setText("\n🎨 Tema Rengi Seçimi:");
@@ -241,7 +315,7 @@ public class MainActivity extends Activity {
             RadioButton rb = new RadioButton(this);
             rb.setId(2000 + i);
             rb.setText(themeTitles[i]);
-            rb.setTextSize(15f);
+            rb.setTextSize(14f);
             rgThemes.addView(rb);
             if (themeKeys[i].equals(currentTheme)) {
                 rb.setChecked(true);
@@ -257,6 +331,9 @@ public class MainActivity extends Activity {
                     if (!newName.isEmpty()) {
                         StudyDatabaseHelper.setUserName(MainActivity.this, newName);
                     }
+                    int chosenGrade = spGrade.getSelectedItemPosition() + 1;
+                    StudyDatabaseHelper.setGradeLevel(MainActivity.this, chosenGrade);
+
                     int checkedId = rgThemes.getCheckedRadioButtonId();
                     int idx = checkedId - 2000;
                     if (idx >= 0 && idx < themeKeys.length) {
@@ -264,7 +341,7 @@ public class MainActivity extends Activity {
                     }
                     applyCurrentTheme();
                     refreshDashboardUi();
-                    Toast.makeText(MainActivity.this, "✅ Ayarlar ve tema güncellendi!", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(MainActivity.this, "✅ Ayarlar kaydedildi!", Toast.LENGTH_SHORT).show();
                 })
                 .setNeutralButton("GitHub Depo Ayarı", (dialog, which) -> {
                     GitHubUpdater.showConfigureRepoDialog(MainActivity.this);
@@ -274,12 +351,20 @@ public class MainActivity extends Activity {
     }
 
     private void requestNecessaryPermissions() {
-        if (Build.VERSION.SDK_INT >= 33) {
-            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 101);
-            }
-        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            List<String> perms = new ArrayList<>();
+            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                perms.add(Manifest.permission.RECORD_AUDIO);
+            }
+            if (Build.VERSION.SDK_INT >= 33) {
+                if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                    perms.add(Manifest.permission.POST_NOTIFICATIONS);
+                }
+            }
+            if (!perms.isEmpty()) {
+                requestPermissions(perms.toArray(new String[0]), 101);
+            }
+
             PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
             if (pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName())) {
                 try {
@@ -328,7 +413,9 @@ public class MainActivity extends Activity {
         layoutDashboardContainer.setVisibility(View.VISIBLE);
 
         String userName = StudyDatabaseHelper.getUserName(this);
+        int grade = StudyDatabaseHelper.getGradeLevel(this);
         tvWelcomeUser.setText("Merhaba " + userName + "! 🌟");
+        tvWelcomeSub.setText(grade + ". Sınıf Başarı Yolculuğunda Bugün Harika İşler Yapacaksın!");
 
         StudyDatabaseHelper db = new StudyDatabaseHelper(this);
         int todaySecs = db.getTotalSecondsForDate(StudyDatabaseHelper.getTodayDateString());
@@ -352,6 +439,14 @@ public class MainActivity extends Activity {
         } else {
             tvCycleMemoryInfo.setText("⏱️ 40 Dakikalık Çalışma Döngüsü: Tam 40 dakika ile başlamaya hazır!");
         }
+
+        String localIp = LanSyncServer.getLocalIpAddress(this);
+        String anneIp = StudyDatabaseHelper.getPairedParentIp(this, "ANNE");
+        String babaIp = StudyDatabaseHelper.getPairedParentIp(this, "BABA");
+        StringBuilder parentInfo = new StringBuilder("📡 Cihaz Ağ IP: " + localIp);
+        if (!anneIp.isEmpty()) parentInfo.append(" • 👩 Anne Eşleşti");
+        if (!babaIp.isEmpty()) parentInfo.append(" • 👨 Baba Eşleşti");
+        tvParentConnectionStatus.setText(parentInfo.toString());
 
         if (serviceBound && timerService != null && timerService.getCurrentPhase() != TimerForegroundService.PHASE_IDLE) {
             btnResumeActiveTimer.setVisibility(View.VISIBLE);

@@ -3,7 +3,7 @@ plugins {
 }
 
 def ciRunNumber = project.hasProperty('versionCode') ? project.property('versionCode').toInteger() : 1
-def ciVersionName = project.hasProperty('versionName') ? project.property('versionName').toString() : "2.0.1"
+def ciVersionName = project.hasProperty('versionName') ? project.property('versionName').toString() : "3.0.1"
 def ciGithubRepo = project.hasProperty('githubRepo') ? project.property('githubRepo').toString() : "kullanici/calisma-zamanlayici"
 
 android {
@@ -18,10 +18,11 @@ android {
         applicationId "com.calismazamanlayici.app"
         minSdk 23
         targetSdk 34
-        versionCode 200 + ciRunNumber
+        versionCode 300 + ciRunNumber
         versionName ciVersionName
 
         buildConfigField "String", "DEFAULT_GITHUB_REPO", "\"${ciGithubRepo}\""
+        buildConfigField "String", "APK_ASSET_NAME", "\"CalismaZamanlayici.apk\""
     }
 
     signingConfigs {
@@ -59,4 +60,5 @@ android {
 }
 
 dependencies {
+    implementation 'com.google.zxing:core:3.5.2'
 }

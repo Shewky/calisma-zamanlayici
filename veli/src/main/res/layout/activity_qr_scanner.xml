@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/veli_bg"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="📷 Öğrenci Karekodunu (QR) Okutun"
+        android:textColor="@color/veli_text_dark"
+        android:textSize="20sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/tvScannerInstruction"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:layout_marginBottom="10dp"
+        android:text="Çalışma Zamanlayıcı uygulamasındaki Anne veya Baba karekodunu kameraya tutun:"
+        android:textColor="@color/veli_text_muted"
+        android:textSize="14sp" />
+
+    <SurfaceView
+        android:id="@+id/surfaceCameraPreview"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <Button
+        android:id="@+id/btnAutoDiscoverPairFallback"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:layout_marginTop="12dp"
+        android:background="@drawable/btn_veli_green"
+        android:text="🔍 Aynı Ağdaki Cihazı Otomatik Tarayarak Eşleştir"
+        android:textAllCaps="false"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp"
+        android:textStyle="bold" />
+
+    <Button
+        android:id="@+id/btnCloseScanner"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginTop="8dp"
+        android:background="@drawable/bg_veli_card"
+        android:text="⬅️ İptal / Geri Dön"
+        android:textAllCaps="false"
+        android:textColor="@color/veli_text_dark"
+        android:textSize="15sp"
+        android:textStyle="bold" />
+
+</LinearLayout>

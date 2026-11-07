@@ -1,0 +1,64 @@
+plugins {
+    id 'com.android.application'
+}
+
+def ciRunNumber = project.hasProperty('versionCode') ? project.property('versionCode').toInteger() : 1
+def ciVersionName = project.hasProperty('versionName') ? project.property('versionName').toString() : "3.0.1"
+def ciGithubRepo = project.hasProperty('githubRepo') ? project.property('githubRepo').toString() : "kullanici/calisma-zamanlayici"
+
+android {
+    namespace 'com.calismazamanlayici.veli'
+    compileSdk 34
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    defaultConfig {
+        applicationId "com.calismazamanlayici.veli"
+        minSdk 23
+        targetSdk 34
+        versionCode 300 + ciRunNumber
+        versionName ciVersionName
+
+        buildConfigField "String", "DEFAULT_GITHUB_REPO", "\"${ciGithubRepo}\""
+        buildConfigField "String", "APK_ASSET_NAME", "\"CalismaZamanlayiciVeli.apk\""
+    }
+
+    signingConfigs {
+        release {
+            storeFile file("keystore/release-key.jks")
+            storePassword "calisma123456"
+            keyAlias "calisma_key"
+            keyPassword "calisma123456"
+            v1SigningEnabled true
+            v2SigningEnabled true
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.release
+        }
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    applicationVariants.all { variant ->
+        variant.outputs.all {
+            outputFileName = "CalismaZamanlayiciVeli.apk"
+        }
+    }
+}
+
+dependencies {
+    implementation 'com.google.zxing:core:3.5.2'
+}

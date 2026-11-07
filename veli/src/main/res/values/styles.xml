@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="VeliAppTheme" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:colorPrimary">@color/veli_primary</item>
+        <item name="android:colorPrimaryDark">@color/veli_primary_dark</item>
+        <item name="android:colorAccent">@color/veli_accent</item>
+        <item name="android:windowBackground">@color/veli_bg</item>
+        <item name="android:statusBarColor">@color/veli_primary_dark</item>
+    </style>
+</resources>

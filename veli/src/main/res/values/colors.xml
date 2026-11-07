@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="veli_primary">#0D47A1</color>
+    <color name="veli_primary_dark">#002171</color>
+    <color name="veli_accent">#00897B</color>
+    <color name="veli_bg">#F1F5F9</color>
+    <color name="veli_text_dark">#0F172A</color>
+    <color name="veli_text_muted">#475569</color>
+</resources>

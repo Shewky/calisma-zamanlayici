@@ -34,14 +34,14 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="Başlamadan önce seni tanıyalım ve uygulama temanı hazırlayalım:"
+                android:text="Başlamadan önce bilgilerini seçelim:"
                 android:textColor="@color/text_muted"
                 android:textSize="15sp" />
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="18dp"
+                android:layout_marginTop="16dp"
                 android:text="İsmin nedir?"
                 android:textColor="@color/text_dark"
                 android:textSize="16sp"
@@ -61,7 +61,22 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
+                android:layout_marginTop="14dp"
+                android:text="Kaçıncı sınıftasın? (1. - 8. Sınıf):"
+                android:textColor="@color/text_dark"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <Spinner
+                android:id="@+id/spinnerOnboardGrade"
+                android:layout_width="match_parent"
+                android:layout_height="50dp"
+                android:layout_marginTop="6dp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
                 android:text="Seçiminiz (tema seçeneği için):"
                 android:textColor="@color/text_dark"
                 android:textSize="16sp"
@@ -77,7 +92,7 @@
                 <RadioButton
                     android:id="@+id/rbOnboardGirl"
                     android:layout_width="match_parent"
-                    android:layout_height="46dp"
+                    android:layout_height="44dp"
                     android:checked="true"
                     android:text="👧 Kız (tema seçeneği için)"
                     android:textColor="@color/text_dark"
@@ -86,7 +101,7 @@
                 <RadioButton
                     android:id="@+id/rbOnboardBoy"
                     android:layout_width="match_parent"
-                    android:layout_height="46dp"
+                    android:layout_height="44dp"
                     android:text="👦 Erkek (tema seçeneği için)"
                     android:textColor="@color/text_dark"
                     android:textSize="16sp" />
@@ -96,7 +111,7 @@
                 android:id="@+id/btnCompleteOnboarding"
                 android:layout_width="match_parent"
                 android:layout_height="58dp"
-                android:layout_marginTop="20dp"
+                android:layout_marginTop="18dp"
                 android:text="🚀 Giriş Yap ve Başla"
                 android:textAllCaps="false"
                 android:textColor="#FFFFFF"
@@ -104,7 +119,7 @@
                 android:textStyle="bold" />
         </LinearLayout>
 
-        <!-- ANA UYGULAMA EKRANI (İLK GİRİŞTEN SONRA GÖRÜNÜR) -->
+        <!-- ANA UYGULAMA EKRANI -->
         <LinearLayout
             android:id="@+id/layoutDashboardContainer"
             android:layout_width="match_parent"
@@ -118,7 +133,7 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:padding="20dp"
-                android:layout_marginBottom="16dp">
+                android:layout_marginBottom="14dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -133,7 +148,7 @@
                         android:layout_weight="1"
                         android:text="Merhaba! 🌟"
                         android:textColor="#FFFFFF"
-                        android:textSize="24sp"
+                        android:textSize="23sp"
                         android:textStyle="bold" />
 
                     <Button
@@ -155,15 +170,15 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
-                    android:text="4. Sınıf Başarı Yolculuğunda Bugün Harika İşler Yapacaksın!"
+                    android:text="Başarı Yolculuğunda Bugün Harika İşler Yapacaksın!"
                     android:textColor="#F8FAFC"
-                    android:textSize="15sp" />
+                    android:textSize="14sp" />
 
                 <TextView
                     android:id="@+id/tvTodaySummaryBanner"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
+                    android:layout_marginTop="10dp"
                     android:background="#28FFFFFF"
                     android:padding="10dp"
                     android:text="🎯 Bugünkü Çalışman: Yükleniyor..."
@@ -180,7 +195,7 @@
                 android:background="@drawable/bg_white_card"
                 android:orientation="vertical"
                 android:padding="14dp"
-                android:layout_marginBottom="16dp">
+                android:layout_marginBottom="14dp">
 
                 <TextView
                     android:id="@+id/tvCycleMemoryInfo"
@@ -194,7 +209,7 @@
                 <Button
                     android:id="@+id/btnResumeActiveTimer"
                     android:layout_width="match_parent"
-                    android:layout_height="50dp"
+                    android:layout_height="48dp"
                     android:layout_marginTop="8dp"
                     android:text="▶️ Devam Eden Zamanlayıcı Ekranını Aç"
                     android:textAllCaps="false"
@@ -207,34 +222,34 @@
             <Button
                 android:id="@+id/btnStartHomework"
                 android:layout_width="match_parent"
-                android:layout_height="68dp"
-                android:layout_marginBottom="12dp"
+                android:layout_height="64dp"
+                android:layout_marginBottom="10dp"
                 android:text="📚 Ödeve Başla"
                 android:textAllCaps="false"
                 android:textColor="#FFFFFF"
-                android:textSize="20sp"
+                android:textSize="19sp"
                 android:textStyle="bold" />
 
             <Button
                 android:id="@+id/btnStartTest"
                 android:layout_width="match_parent"
-                android:layout_height="68dp"
-                android:layout_marginBottom="12dp"
+                android:layout_height="64dp"
+                android:layout_marginBottom="10dp"
                 android:text="📝 Test Çözümleri"
                 android:textAllCaps="false"
                 android:textColor="#FFFFFF"
-                android:textSize="20sp"
+                android:textSize="19sp"
                 android:textStyle="bold" />
 
             <Button
                 android:id="@+id/btnStartBookRead"
                 android:layout_width="match_parent"
-                android:layout_height="68dp"
-                android:layout_marginBottom="14dp"
+                android:layout_height="64dp"
+                android:layout_marginBottom="12dp"
                 android:text="📖 Kitap Oku"
                 android:textAllCaps="false"
                 android:textColor="#FFFFFF"
-                android:textSize="20sp"
+                android:textSize="19sp"
                 android:textStyle="bold" />
 
             <!-- Takvim ve Başarı Ödülleri Butonları -->
@@ -243,12 +258,12 @@
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:weightSum="2"
-                android:layout_marginBottom="14dp">
+                android:layout_marginBottom="12dp">
 
                 <Button
                     android:id="@+id/btnOpenCalendar"
                     android:layout_width="0dp"
-                    android:layout_height="62dp"
+                    android:layout_height="58dp"
                     android:layout_weight="1"
                     android:layout_marginEnd="6dp"
                     android:text="📅 Çalışma Takvimi"
@@ -260,13 +275,83 @@
                 <Button
                     android:id="@+id/btnOpenRewards"
                     android:layout_width="0dp"
-                    android:layout_height="62dp"
+                    android:layout_height="58dp"
                     android:layout_weight="1"
                     android:layout_marginStart="6dp"
                     android:text="🏆 Başarı Ödüllerim"
                     android:textAllCaps="false"
                     android:textColor="#FFFFFF"
                     android:textSize="15sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <!-- YENİ: Veli Eşleştirme (Karekod) & Anne/Baba Sesli Çağrı Gönderme Kartı -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_white_card"
+                android:orientation="vertical"
+                android:padding="14dp"
+                android:layout_marginBottom="12dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="👨‍👩‍👧 Veli Eşleştirme ve Sesli Çağrı"
+                    android:textColor="@color/text_dark"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvParentConnectionStatus"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Aynı Wi-Fi ağında Anne veya Baba ile eşleşip görüşebilirsin."
+                    android:textColor="@color/text_muted"
+                    android:textSize="13sp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:orientation="horizontal"
+                    android:weightSum="2">
+
+                    <Button
+                        android:id="@+id/btnCallAnne"
+                        android:layout_width="0dp"
+                        android:layout_height="50dp"
+                        android:layout_weight="1"
+                        android:layout_marginEnd="6dp"
+                        android:text="👩 Anne'ye Çağrı"
+                        android:textAllCaps="false"
+                        android:textColor="#FFFFFF"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+
+                    <Button
+                        android:id="@+id/btnCallBaba"
+                        android:layout_width="0dp"
+                        android:layout_height="50dp"
+                        android:layout_weight="1"
+                        android:layout_marginStart="6dp"
+                        android:text="👨 Baba'ya Çağrı"
+                        android:textAllCaps="false"
+                        android:textColor="#FFFFFF"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <Button
+                    android:id="@+id/btnOpenParentQr"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="8dp"
+                    android:text="📱 Anne / Baba Eşleştirme Karekodu Göster"
+                    android:textAllCaps="false"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp"
                     android:textStyle="bold" />
             </LinearLayout>
 
@@ -282,7 +367,7 @@
                     android:id="@+id/tvAppVersionInfo"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Sürüm: v2.0 • Android 6+ Arka Plan Sesli Uyarı Aktif"
+                    android:text="Sürüm: v3.0 • Android 6+ Arka Plan Sesli Uyarı Aktif"
                     android:textColor="@color/text_muted"
                     android:textSize="13sp"
                     android:layout_marginBottom="10dp" />
