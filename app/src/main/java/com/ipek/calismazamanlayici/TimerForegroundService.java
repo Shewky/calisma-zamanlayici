@@ -364,7 +364,7 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
                 ? "☕ Mola Zamanı (" + StudyDatabaseHelper.formatClock(remainingSeconds) + ")"
                 : "📚 " + currentMode + ": " + currentSubject + " (" + StudyDatabaseHelper.formatClock(remainingSeconds) + ")";
 
-        String subText = "Son Anons: "" + lastAnnouncement + "" • İpek için arka planda çalışıyor";
+        String subText = "Son Anons: '" + lastAnnouncement + "' • İpek için arka planda çalışıyor";
 
         Notification.Builder builder;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
