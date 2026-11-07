@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/scrollRootCalendar"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fillViewport="true"
-    android:background="@color/bg_cream">
+    android:background="@color/bg_surface">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -12,17 +13,18 @@
         android:padding="16dp">
 
         <LinearLayout
+            android:id="@+id/layoutCalendarHeaderCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@drawable/bg_header_card"
             android:orientation="vertical"
             android:padding="18dp"
             android:layout_marginBottom="14dp">
 
             <TextView
+                android:id="@+id/tvCalendarHeaderTitle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="📅 İpek'in Çalışma Takvimi"
+                android:text="📅 Çalışma ve Okuma Takvimi"
                 android:textColor="#FFFFFF"
                 android:textSize="22sp"
                 android:textStyle="bold" />
@@ -31,8 +33,8 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="Takvimden bir güne tıklayarak o gün yaptığın ödev ve test sürelerini görebilirsin!"
-                android:textColor="#FFF5FA"
+                android:text="Takvimden bir güne tıklayarak o gün yapılan ödev, çözülen test ve okunan kitap sürelerini görebilirsin!"
+                android:textColor="#F8FAFC"
                 android:textSize="14sp" />
         </LinearLayout>
 
@@ -64,7 +66,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="📌 Seçilen Gün: Bugün"
-                android:textColor="@color/primary_pink_dark"
+                android:textColor="@color/text_dark"
                 android:textSize="17sp"
                 android:textStyle="bold" />
 
@@ -73,8 +75,8 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
-                android:text="Toplam Ödev: 0 dk • Toplam Test: 0 dk"
-                android:textColor="@color/accent_purple"
+                android:text="Toplam Ödev: 0 dk • Test: 0 dk • Kitap: 0 dk"
+                android:textColor="@color/text_muted"
                 android:textSize="14sp"
                 android:textStyle="bold" />
 
@@ -90,7 +92,6 @@
             android:id="@+id/btnBackFromCalendar"
             android:layout_width="match_parent"
             android:layout_height="52dp"
-            android:background="@drawable/btn_pink_rounded"
             android:text="⬅️ Ana Ekrana Dön"
             android:textAllCaps="false"
             android:textColor="#FFFFFF"

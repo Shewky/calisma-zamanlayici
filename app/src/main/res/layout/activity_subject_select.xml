@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/scrollRootSubject"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fillViewport="true"
-    android:background="@color/bg_cream">
+    android:background="@color/bg_surface">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -12,9 +13,9 @@
         android:padding="18dp">
 
         <LinearLayout
+            android:id="@+id/layoutSubjectHeaderCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@drawable/bg_header_card"
             android:orientation="vertical"
             android:padding="18dp"
             android:layout_marginBottom="14dp">
@@ -23,7 +24,7 @@
                 android:id="@+id/tvSubjectHeaderTitle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="İpek, Hangi Dersi Seçiyoruz? 🌈"
+                android:text="Hangi Dersi Seçiyoruz? 🌈"
                 android:textColor="#FFFFFF"
                 android:textSize="22sp"
                 android:textStyle="bold" />
@@ -34,7 +35,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
                 android:text="4. Sınıf Ders Seçimi"
-                android:textColor="#FFF5FA"
+                android:textColor="#F8FAFC"
                 android:textSize="15sp" />
         </LinearLayout>
 
@@ -51,7 +52,7 @@
                 android:id="@+id/tvCarriedTimeNotice"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="⏱️ Seçtiğin derste 40 dakikalık çalışma süresi başlayacak."
+                android:text="⏱️ Derse tıkladığında ders adı anons edilir ve Başlat butonu ile 40 dakikalık süre başlar."
                 android:textColor="@color/text_dark"
                 android:textSize="14sp"
                 android:textStyle="bold" />
@@ -63,7 +64,6 @@
                 android:layout_marginTop="8dp"
                 android:paddingStart="12dp"
                 android:paddingEnd="12dp"
-                android:background="@drawable/btn_orange_rounded"
                 android:text="🔄 Süreyi 40 Dakikaya Sıfırla"
                 android:textAllCaps="false"
                 android:textColor="#FFFFFF"

@@ -1,1 +1,1 @@
--keep class com.ipek.calismazamanlayici.** { *; }
+-keep class com.calismazamanlayici.app.** { *; }

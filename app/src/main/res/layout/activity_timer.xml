@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/scrollRootTimer"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fillViewport="true"
-    android:background="@color/bg_cream">
+    android:background="@color/bg_surface">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -17,16 +18,15 @@
             android:id="@+id/layoutTimerBanner"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@drawable/bg_header_card"
             android:orientation="vertical"
             android:padding="18dp"
-            android:layout_marginBottom="18dp">
+            android:layout_marginBottom="16dp">
 
             <TextView
-                android:id="@+id/tvTimerIpekcheer"
+                android:id="@+id/tvTimerUserCheer"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Başarılar İpek! 🌟"
+                android:text="Başarılar! 🌟"
                 android:textColor="#FFFFFF"
                 android:textSize="22sp"
                 android:textStyle="bold" />
@@ -38,7 +38,7 @@
                 android:layout_marginTop="4dp"
                 android:text="📚 Ödev • Türkçe"
                 android:textColor="#FFFFFF"
-                android:textSize="17sp"
+                android:textSize="18sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -48,28 +48,74 @@
                 android:layout_marginTop="8dp"
                 android:background="#33FFFFFF"
                 android:padding="8dp"
-                android:text="🔔 Durum: Çalışma Süresi Aktif"
+                android:text="🔔 Durum: Başlatmayı Bekliyor"
                 android:textColor="#FFFFFF"
                 android:textSize="14sp"
                 android:textStyle="bold" />
         </LinearLayout>
 
+        <!-- MOLA BİTİMİ SORU KUTUSU ("Bu dersten mi devam edeceksin?") -->
+        <LinearLayout
+            android:id="@+id/layoutPostBreakPrompt"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_white_card"
+            android:orientation="vertical"
+            android:padding="18dp"
+            android:layout_marginBottom="16dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/tvPostBreakQuestion"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="🔔 10 Dakikalık Mola Süresi Bitti!
+En son çalıştığın dersten mi devam edeceksin?"
+                android:textColor="@color/text_dark"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/btnPostBreakYes"
+                android:layout_width="match_parent"
+                android:layout_height="58dp"
+                android:layout_marginTop="12dp"
+                android:text="✅ Evet, Bu Dersten Devam Et"
+                android:textAllCaps="false"
+                android:textColor="#FFFFFF"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/btnPostBreakSwitch"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/bg_white_card"
+                android:text="🔄 Hayır, Başka Ders Seç"
+                android:textAllCaps="false"
+                android:textColor="@color/text_dark"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
         <!-- Büyük Dairesel Sayaç Görünümü -->
         <LinearLayout
-            android:layout_width="250dp"
-            android:layout_height="250dp"
+            android:id="@+id/layoutTimerCircle"
+            android:layout_width="245dp"
+            android:layout_height="245dp"
             android:background="@drawable/bg_timer_circle"
             android:gravity="center"
             android:orientation="vertical"
             android:padding="20dp"
-            android:layout_marginBottom="18dp">
+            android:layout_marginBottom="16dp">
 
             <TextView
                 android:id="@+id/tvPhaseLabelInside"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="KALAN SÜRE"
-                android:textColor="@color/primary_pink"
+                android:textColor="@color/text_muted"
                 android:textSize="14sp"
                 android:textStyle="bold" />
 
@@ -80,7 +126,7 @@
                 android:layout_marginTop="6dp"
                 android:text="40:00"
                 android:textColor="@color/text_dark"
-                android:textSize="54sp"
+                android:textSize="52sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -94,6 +140,18 @@
                 android:textSize="13sp" />
         </LinearLayout>
 
+        <!-- YENİ: Derse Tıkladıktan Sonra Süreyi Başlatan "BAŞLAT" Butonu -->
+        <Button
+            android:id="@+id/btnStartTimerNow"
+            android:layout_width="match_parent"
+            android:layout_height="68dp"
+            android:layout_marginBottom="14dp"
+            android:text="▶️ Başlat"
+            android:textAllCaps="false"
+            android:textColor="#FFFFFF"
+            android:textSize="22sp"
+            android:textStyle="bold" />
+
         <!-- Döngü Açıklama Kartı -->
         <LinearLayout
             android:layout_width="match_parent"
@@ -101,14 +159,14 @@
             android:background="@drawable/bg_white_card"
             android:orientation="vertical"
             android:padding="14dp"
-            android:layout_marginBottom="16dp">
+            android:layout_marginBottom="14dp">
 
             <TextView
                 android:id="@+id/tvLastAnnouncementText"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="🔊 Son Sesli Anons: &quot;Çalışmaya başla&quot;"
-                android:textColor="@color/accent_purple"
+                android:text="🔊 Son Sesli Anons: Hazır"
+                android:textColor="@color/text_dark"
                 android:textSize="15sp"
                 android:textStyle="bold" />
 
@@ -117,25 +175,24 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
-                android:text="Ekran kapalı olsa bile süre dolduğunda 'Mola zamanı', mola bitmeye yakın 'Mola bitmek üzere' ve mola bitince 'Çalışmaya devam et' sesli uyarısı yapılır."
+                android:text="Süre dolduğunda 'çın çın' zil sesiyle 'Mola zamanı' uyarısı yapılır. Mola bitince en son çalıştığın dersi ekrana getirerek devam onayı sorar."
                 android:textColor="@color/text_muted"
                 android:textSize="13sp" />
         </LinearLayout>
 
-        <!-- "Bu dersin ödevi bitti" / "Bu dersin testi bitti" Ana Butonu -->
+        <!-- "Bu dersin ödevi bitti" / "Bu dersin testi bitti" / "Kitap okumayı bitir" Ana Butonu -->
         <Button
             android:id="@+id/btnFinishCurrentSubject"
             android:layout_width="match_parent"
-            android:layout_height="68dp"
+            android:layout_height="64dp"
             android:layout_marginBottom="12dp"
-            android:background="@drawable/btn_mint_rounded"
             android:text="✅ Bu dersin ödevi bitti"
             android:textAllCaps="false"
             android:textColor="#FFFFFF"
-            android:textSize="19sp"
+            android:textSize="18sp"
             android:textStyle="bold" />
 
-        <!-- Duraklat / Devam Et & İptal -->
+        <!-- Duraklat / Devam Et & Geri Dön -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -148,7 +205,6 @@
                 android:layout_height="50dp"
                 android:layout_weight="1"
                 android:layout_marginEnd="6dp"
-                android:background="@drawable/btn_orange_rounded"
                 android:text="⏸️ Duraklat"
                 android:textAllCaps="false"
                 android:textColor="#FFFFFF"
@@ -162,7 +218,7 @@
                 android:layout_weight="1"
                 android:layout_marginStart="6dp"
                 android:background="@drawable/bg_white_card"
-                android:text="⬅️ Ders Seçimine Dön"
+                android:text="⬅️ Seçim Ekranına Dön"
                 android:textAllCaps="false"
                 android:textColor="@color/text_dark"
                 android:textSize="14sp"
