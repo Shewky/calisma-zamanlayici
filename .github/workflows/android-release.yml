@@ -22,9 +22,6 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Android SDK Kurulumu
-        uses: android-actions/setup-android@v3
-
       - name: Gradle 8.5 Kurulumu
         uses: gradle/actions/setup-gradle@v3
         with:
