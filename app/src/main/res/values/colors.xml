@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="primary_pink">#FF5E8E</color>
+    <color name="primary_pink_dark">#D93B6B</color>
+    <color name="accent_purple">#7C4DFF</color>
+    <color name="bg_cream">#FFF8FC</color>
+    <color name="card_white">#FFFFFF</color>
+    <color name="sunny_yellow">#FFD54F</color>
+    <color name="mint_green">#26A69A</color>
+    <color name="sky_blue">#29B6F6</color>
+    <color name="coral_orange">#FF7043</color>
+    <color name="text_dark">#372549</color>
+    <color name="text_muted">#6E5773</color>
+</resources>

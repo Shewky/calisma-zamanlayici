@@ -1,0 +1,63 @@
+plugins {
+    id 'com.android.application'
+}
+
+def ciRunNumber = project.hasProperty('versionCode') ? project.property('versionCode').toInteger() : 1
+def ciVersionName = project.hasProperty('versionName') ? project.property('versionName').toString() : "1.0.1"
+def ciGithubRepo = project.hasProperty('githubRepo') ? project.property('githubRepo').toString() : "kullanici/calisma-zamanlayici"
+
+android {
+    namespace 'com.ipek.calismazamanlayici'
+    compileSdk 34
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    defaultConfig {
+        applicationId "com.ipek.calismazamanlayici"
+        minSdk 23
+        targetSdk 34
+        versionCode 100 + ciRunNumber
+        versionName ciVersionName
+
+        buildConfigField "String", "DEFAULT_GITHUB_REPO", "\"${ciGithubRepo}\""
+    }
+
+    signingConfigs {
+        release {
+            storeFile file("keystore/ipek-release-key.jks")
+            storePassword "ipek123456"
+            keyAlias "ipek_key"
+            keyPassword "ipek123456"
+            v1SigningEnabled true
+            v2SigningEnabled true
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.release
+        }
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    applicationVariants.all { variant ->
+        variant.outputs.all {
+            outputFileName = "CalismaZamanlayici.apk"
+        }
+    }
+}
+
+dependencies {
+    // Saf Android SDK (API 23 - 34) kullanilarak sifir dis bagimlilik hatasi ve maksimum uyumluluk saglanmistir.
+}
