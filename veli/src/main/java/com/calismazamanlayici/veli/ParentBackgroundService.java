@@ -305,9 +305,9 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
             int state = 0;
             while ((b = in.read()) != -1) {
                 headerBuf.write(b);
-                if ((state == 0 || state == 2) && b == '\r') {
+                if ((state == 0 || state == 2) && b == 13) {
                     state++;
-                } else if ((state == 1 || state == 3) && b == '\n') {
+                } else if ((state == 1 || state == 3) && b == 10) {
                     state++;
                     if (state == 4) break;
                 } else {

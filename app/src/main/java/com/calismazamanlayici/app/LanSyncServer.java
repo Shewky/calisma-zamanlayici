@@ -2,8 +2,6 @@ package com.calismazamanlayici.app;
 
 import android.content.Context;
 import android.content.Intent;
-import android.net.ConnectivityManager;
-import android.net.NetworkInfo;
 import android.net.Uri;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
@@ -154,13 +152,11 @@ public class LanSyncServer {
                                     replyBytes, replyBytes.length, pkt.getAddress(), DISCOVERY_UDP_PORT);
                             udpSocket.send(reply);
                         } else if (msg.startsWith("CZ_PRAISE|")) {
-                            // Format: CZ_PRAISE|<role>|<speech>
                             String[] parts = msg.split("\\|", 3);
                             if (parts.length >= 3) {
                                 triggerPraiseAnnouncement(parts[1], parts[2]);
                             }
                         } else if (msg.startsWith("CZ_DIRECT_CALL|")) {
-                            // Format: CZ_DIRECT_CALL|<role>|<parentIp>
                             String[] parts = msg.split("\\|");
                             String role = parts.length > 1 ? parts[1] : "ANNE";
                             String pIp = (senderIp != null && !senderIp.isEmpty())
@@ -230,10 +226,6 @@ public class LanSyncServer {
         }, "StudentHttpServer").start();
     }
 
-    /**
-     * Ham byte tabanlı HTTP okuyucu: Türkçe karakterlerde Content-Length uyuşmazlığı yüzünden
-     * oluşan "unexpected end of stream" hatasını tamamen ortadan kaldırır.
-     */
     private void handleHttpClient(Socket client) {
         try {
             client.setSoTimeout(4000);
@@ -241,18 +233,15 @@ public class LanSyncServer {
             String remoteIp = client.getInetAddress().getHostAddress();
             InputStream in = client.getInputStream();
 
-            // Başlıkları (
-
-) kadar byte olarak oku
+            // HTTP basliklarini (CRLF CRLF) kadar ham byte olarak oku
             ByteArrayOutputStream headerBuf = new ByteArrayOutputStream();
             int b;
             int state = 0;
             while ((b = in.read()) != -1) {
                 headerBuf.write(b);
-                if ((state == 0 || state == 2) && b == '') {
+                if ((state == 0 || state == 2) && b == 13) {
                     state++;
-                } else if ((state == 1 || state == 3) && b == '
-') {
+                } else if ((state == 1 || state == 3) && b == 10) {
                     state++;
                     if (state == 4) break;
                 } else {
