@@ -205,7 +205,11 @@ public class MainActivity extends Activity {
         });
 
         // Servisi başlatarak LAN senkronizasyon sunucusunu aktif tut
-        startService(new Intent(this, TimerForegroundService.class));
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(new Intent(this, TimerForegroundService.class));
+        } else {
+            startService(new Intent(this, TimerForegroundService.class));
+        }
 
         requestNecessaryPermissions();
         applyCurrentTheme();

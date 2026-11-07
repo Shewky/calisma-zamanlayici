@@ -10,6 +10,7 @@ import android.content.Intent;
 import android.media.AudioAttributes;
 import android.media.AudioManager;
 import android.media.ToneGenerator;
+import android.net.wifi.WifiManager;
 import android.os.Binder;
 import android.os.Build;
 import android.os.Bundle;
@@ -24,34 +25,31 @@ import android.speech.tts.TextToSpeech;
 import java.util.Locale;
 
 /**
- * Arka planda ve ekran kapalıyken bile (WakeLock + ForegroundService + Alarm Ses Kanalı)
- * kesintisiz çalışan zamanlayıcı ve Türkçe sesli anons servisi.
+ * Öğrenci uygulamasında sürekli arka planda ve ekran kapalıyken bile çalışan servis:
+ * - WakeLock + WifiLock + MulticastLock ile ekran kapansa veya uygulama arka plana atılsa bile
+ *   hem sayaç/anonsları sürdürür hem de Veli uygulamasından gelen onaysız doğrudan aramaları anında başlatır.
  */
 public class TimerForegroundService extends Service implements TextToSpeech.OnInitListener {
 
-    // Derse tıklandığında süreyi hemen başlatmaz; ders adını anons edip "Başlat" butonunu bekler
     public static final String ACTION_PREPARE_SESSION = "com.calismazamanlayici.app.ACTION_PREPARE_SESSION";
-    // "Başlat" butonuna tıklandığında "Çalışmaya başla" diyerek sayacı başlatır
     public static final String ACTION_START_PREPARED_SESSION = "com.calismazamanlayici.app.ACTION_START_PREPARED_SESSION";
-    // Kitap Oku ekranında kitap adı yazılıp "Oku" butonuna basıldığında çalışır
     public static final String ACTION_START_BOOK_SESSION = "com.calismazamanlayici.app.ACTION_START_BOOK_SESSION";
-    // Mola bitiminde "Evet, Bu Dersten Devam Et" denildiğinde çalışır
     public static final String ACTION_CONFIRM_POST_BREAK_CONTINUE = "com.calismazamanlayici.app.ACTION_CONFIRM_POST_BREAK_CONTINUE";
-
     public static final String ACTION_PAUSE_RESUME = "com.calismazamanlayici.app.ACTION_PAUSE_RESUME";
     public static final String ACTION_FINISH_SUBJECT = "com.calismazamanlayici.app.ACTION_FINISH_SUBJECT";
     public static final String ACTION_CANCEL_SESSION = "com.calismazamanlayici.app.ACTION_CANCEL_SESSION";
     public static final String ACTION_SPEAK_CUSTOM = "com.calismazamanlayici.app.ACTION_SPEAK_CUSTOM";
+    public static final String ACTION_END_ACTIVE_CALL = "com.calismazamanlayici.app.ACTION_END_ACTIVE_CALL";
 
     public static final String EXTRA_MODE = "extra_mode";
     public static final String EXTRA_SUBJECT = "extra_subject";
     public static final String EXTRA_CUSTOM_SPEECH = "extra_custom_speech";
 
     public static final int PHASE_IDLE = 0;
-    public static final int PHASE_READY_TO_START = 1;    // Ders seçildi, "Başlat" butonuna basılması bekleniyor
-    public static final int PHASE_STUDY = 2;             // Çalışma / Okuma sayacı aktif
-    public static final int PHASE_BREAK = 3;             // 10 dakikalık Mola sayacı aktif
-    public static final int PHASE_POST_BREAK_PROMPT = 4; // Mola bitti, "Bu dersten mi devam edeceksin?" onayı bekleniyor
+    public static final int PHASE_READY_TO_START = 1;
+    public static final int PHASE_STUDY = 2;
+    public static final int PHASE_BREAK = 3;
+    public static final int PHASE_POST_BREAK_PROMPT = 4;
 
     private static final String CHANNEL_ID = "CalismaTimerChannel";
     private static final int NOTIF_ID = 1001;
@@ -59,6 +57,8 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
     private final IBinder binder = new LocalBinder();
     private Handler handler;
     private PowerManager.WakeLock wakeLock;
+    private WifiManager.WifiLock wifiLock;
+    private WifiManager.MulticastLock multicastLock;
     private TextToSpeech tts;
     private LanSyncServer lanSyncServer;
     private boolean ttsReady = false;
@@ -116,7 +116,10 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
         super.onCreate();
         handler = new Handler(Looper.getMainLooper());
         createNotificationChannel();
-        acquireWakeLock();
+        acquireLocks();
+        // Uygulama arka plandayken de kapanmaması ve Veli aramalarını anında açabilmesi için
+        // servisi başlangıçtan itibaren Foreground modunda tutuyoruz.
+        startForeground(NOTIF_ID, buildNotification());
         tts = new TextToSpeech(getApplicationContext(), this);
         lanSyncServer = new LanSyncServer(this);
         lanSyncServer.start();
@@ -147,20 +150,59 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
         }
     }
 
-    private void acquireWakeLock() {
-        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-        if (pm != null && wakeLock == null) {
-            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "CalismaZamanlayici::TimerWakeLock");
-            wakeLock.setReferenceCounted(false);
+    private void acquireLocks() {
+        try {
+            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            if (pm != null && wakeLock == null) {
+                wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "CalismaZamanlayici::TimerWakeLock");
+                wakeLock.setReferenceCounted(false);
+            }
+            if (wakeLock != null && !wakeLock.isHeld()) {
+                wakeLock.acquire();
+            }
+        } catch (Exception ignored) {
         }
-        if (wakeLock != null && !wakeLock.isHeld()) {
-            wakeLock.acquire(4 * 60 * 60 * 1000L);
+        try {
+            WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            if (wm != null) {
+                if (wifiLock == null) {
+                    wifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "CalismaZamanlayici::WifiLock");
+                    wifiLock.setReferenceCounted(false);
+                }
+                if (!wifiLock.isHeld()) {
+                    wifiLock.acquire();
+                }
+                if (multicastLock == null) {
+                    multicastLock = wm.createMulticastLock("CalismaZamanlayici::MulticastLock");
+                    multicastLock.setReferenceCounted(false);
+                }
+                if (!multicastLock.isHeld()) {
+                    multicastLock.acquire();
+                }
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    public void wakeScreenBriefly() {
+        try {
+            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            if (pm != null) {
+                @SuppressWarnings("deprecation")
+                PowerManager.WakeLock screenLock = pm.newWakeLock(
+                        PowerManager.SCREEN_BRIGHT_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                        "CalismaZamanlayici::ScreenWake"
+                );
+                screenLock.acquire(8000L);
+            }
+        } catch (Exception ignored) {
         }
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        acquireWakeLock();
+        acquireLocks();
+        startForeground(NOTIF_ID, buildNotification());
         if (intent != null && intent.getAction() != null) {
             String action = intent.getAction();
             if (ACTION_PREPARE_SESSION.equals(action)) {
@@ -185,15 +227,15 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
                 if (text != null && !text.isEmpty()) {
                     speakNow(text);
                 }
+            } else if (ACTION_END_ACTIVE_CALL.equals(action)) {
+                VoiceCallManager.stopCall(this);
+                CallActivity.notifyCallEndedRemotely();
+                updateForegroundNotification();
             }
         }
         return START_STICKY;
     }
 
-    /**
-     * Derse tıklandığında süreyi otomatik başlatmaz!
-     * Sadece seçilen dersin ismini anons eder ve "Başlat" butonuna tıklanmasını bekler.
-     */
     private void prepareSubjectSession(String mode, String subject) {
         handler.removeCallbacks(tickRunnable);
         if (mode != null) currentMode = mode;
@@ -214,11 +256,9 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
 
         lastAnnouncement = currentSubject;
         speakNow(currentSubject);
+        updateForegroundNotification();
     }
 
-    /**
-     * Kullanıcı "Başlat" butonuna tıkladığında "Çalışmaya başla" diyerek süreyi başlatır.
-     */
     public void startPreparedSubjectSession() {
         if (currentPhase != PHASE_READY_TO_START && currentPhase != PHASE_IDLE) {
             return;
@@ -233,18 +273,14 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
         isPaused = false;
         breakWarningAnnounced = false;
 
-        startForeground(NOTIF_ID, buildNotification());
         announce("Çalışmaya başla", false);
+        updateForegroundNotification();
 
         handler.removeCallbacks(tickRunnable);
         lastTickRealtimeMs = SystemClock.elapsedRealtime();
         handler.postDelayed(tickRunnable, 1000L);
     }
 
-    /**
-     * Kitap Oku ekranında kitap ismi girilip "Oku" butonuna tıklandığında:
-     * "[Kitap İsmi] kitabını iyi okumalar" anonsu yapar ve okuma süresini başlatır.
-     */
     private void startBookReadingSession(String bookTitle) {
         handler.removeCallbacks(tickRunnable);
         currentMode = StudyDatabaseHelper.MODE_BOOK;
@@ -263,9 +299,9 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
         isPaused = false;
         breakWarningAnnounced = false;
 
-        startForeground(NOTIF_ID, buildNotification());
         String msg = currentSubject + " kitabını iyi okumalar";
         announce(msg, false);
+        updateForegroundNotification();
 
         lastTickRealtimeMs = SystemClock.elapsedRealtime();
         handler.postDelayed(tickRunnable, 1000L);
@@ -282,42 +318,37 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
             }
 
             if (remainingSeconds <= 0) {
-                // 40 dakikalık çalışma süresi doldu -> Çın çın zil sesi + "Mola zamanı" anonsu!
                 StudyDatabaseHelper.resetCarriedCycleSeconds(this);
                 carriedCycleSeconds = 0;
                 currentPhase = PHASE_BREAK;
-                remainingSeconds = StudyDatabaseHelper.FULL_BREAK_CYCLE_SECONDS; // 10 dakika mola
+                remainingSeconds = StudyDatabaseHelper.FULL_BREAK_CYCLE_SECONDS;
                 breakWarningAnnounced = false;
+                wakeScreenBriefly();
                 announce("Mola zamanı", true);
             }
         } else if (currentPhase == PHASE_BREAK) {
             remainingSeconds--;
 
-            // 10 dakikalık molanın bitmesine yakın (son 1 dakika kala) -> "Mola bitmek üzere" uyarısı!
             if (remainingSeconds == StudyDatabaseHelper.BREAK_WARNING_REMAINING_SECONDS && !breakWarningAnnounced) {
                 breakWarningAnnounced = true;
+                wakeScreenBriefly();
                 announce("Mola bitmek üzere", false);
             }
 
             if (remainingSeconds <= 0) {
-                // 10 dakikalık mola süresi bitti!
-                // Otomatik başlatmak yerine son çalışılan dersi ekrana getirip "Bu dersten mi devam edeceksin" diye sorar!
                 currentPhase = PHASE_POST_BREAK_PROMPT;
                 remainingSeconds = 0;
                 carriedCycleSeconds = 0;
                 StudyDatabaseHelper.resetCarriedCycleSeconds(this);
                 breakWarningAnnounced = false;
 
+                wakeScreenBriefly();
                 announce("Bu dersten mi devam edeceksin", true);
                 bringTimerActivityToFront();
             }
         }
     }
 
-    /**
-     * Mola bitiminde kullanıcı "Evet, Bu Dersten Devam Et" butonuna tıkladığında:
-     * "Çalışmaya devam et [Kullanıcı İsmi]" diyerek 40 dakikalık yeni döngüyü başlatır.
-     */
     public void confirmContinueAfterBreak() {
         currentPhase = PHASE_STUDY;
         carriedCycleSeconds = 0;
@@ -327,8 +358,8 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
         breakWarningAnnounced = false;
 
         String userName = StudyDatabaseHelper.getUserName(this);
-        startForeground(NOTIF_ID, buildNotification());
         announce("Çalışmaya devam et " + userName, false);
+        updateForegroundNotification();
 
         handler.removeCallbacks(tickRunnable);
         lastTickRealtimeMs = SystemClock.elapsedRealtime();
@@ -383,7 +414,8 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
 
         currentPhase = PHASE_IDLE;
         isPaused = false;
-        stopForeground(true);
+        // Servisi durdurmuyoruz, arka planda Veli bağlantısı için çalışmaya devam ediyor!
+        updateForegroundNotification();
     }
 
     public void cancelCurrentSession() {
@@ -393,7 +425,7 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
         }
         currentPhase = PHASE_IDLE;
         isPaused = false;
-        stopForeground(true);
+        updateForegroundNotification();
     }
 
     public void announce(final String phrase, boolean playCinCinBellSound) {
@@ -406,9 +438,6 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
         }
     }
 
-    /**
-     * Mola zamanında "Çın Çın" zil sesi çalar ve ardından sesli anonsu yapar.
-     */
     private void playCinCinBellAndSpeak(final String phrase) {
         try {
             Vibrator vib = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
@@ -416,13 +445,11 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
                 vib.vibrate(new long[]{0, 250, 150, 250}, -1);
             }
             final ToneGenerator toneGen = new ToneGenerator(AudioManager.STREAM_ALARM, 95);
-            // 1. Çın
             toneGen.startTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 220);
             handler.postDelayed(new Runnable() {
                 @Override
                 public void run() {
                     try {
-                        // 2. Çın
                         toneGen.startTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 260);
                     } catch (Exception ignored) {
                     }
@@ -479,10 +506,10 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel channel = new NotificationChannel(
                     CHANNEL_ID,
-                    "Çalışma Zamanlayıcı Bildirimleri",
+                    "Çalışma Zamanlayıcı Arka Plan Servisi",
                     NotificationManager.IMPORTANCE_LOW
             );
-            channel.setDescription("Arka planda çalışma, kitap okuma ve mola sayaç durumu");
+            channel.setDescription("Arka planda çalışma sayacı, sesli anons ve veli bağlantı servisi");
             NotificationManager nm = getSystemService(NotificationManager.class);
             if (nm != null) {
                 nm.createNotificationChannel(channel);
@@ -491,7 +518,8 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
     }
 
     private Notification buildNotification() {
-        Intent openIntent = new Intent(this, TimerActivity.class);
+        Intent openIntent = new Intent(this,
+                (currentPhase == PHASE_IDLE) ? MainActivity.class : TimerActivity.class);
         openIntent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         int flags = PendingIntent.FLAG_UPDATE_CURRENT;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -500,15 +528,19 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
         PendingIntent pi = PendingIntent.getActivity(this, 0, openIntent, flags);
 
         String phaseTitle;
-        if (currentPhase == PHASE_BREAK) {
+        if (VoiceCallManager.isCallRunning()) {
+            phaseTitle = "📞 Veli ile Sesli Görüşme Aktif (Hoparlör Açık)";
+        } else if (currentPhase == PHASE_BREAK) {
             phaseTitle = "☕ Mola Zamanı (" + StudyDatabaseHelper.formatClock(remainingSeconds) + ")";
         } else if (currentPhase == PHASE_POST_BREAK_PROMPT) {
             phaseTitle = "🔔 Mola Bitti: " + currentSubject + " dersinden devam edilsin mi?";
-        } else {
+        } else if (currentPhase == PHASE_STUDY) {
             phaseTitle = "📚 " + currentMode + ": " + currentSubject + " (" + StudyDatabaseHelper.formatClock(remainingSeconds) + ")";
+        } else {
+            phaseTitle = "🟢 Çalışma Zamanlayıcı Arka Planda Hazır";
         }
 
-        String subText = "Son Anons: '" + lastAnnouncement + "' • Arka planda aktif";
+        String subText = "Son Anons: '" + lastAnnouncement + "' • Veli bağlantısı aktif";
 
         Notification.Builder builder;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -526,9 +558,9 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
         return builder.build();
     }
 
-    private void updateForegroundNotification() {
+    public void updateForegroundNotification() {
         NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-        if (nm != null && currentPhase != PHASE_IDLE && currentPhase != PHASE_READY_TO_START) {
+        if (nm != null) {
             nm.notify(NOTIF_ID, buildNotification());
         }
     }
@@ -579,6 +611,12 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
         if (tts != null) {
             tts.stop();
             tts.shutdown();
+        }
+        if (wifiLock != null && wifiLock.isHeld()) {
+            wifiLock.release();
+        }
+        if (multicastLock != null && multicastLock.isHeld()) {
+            multicastLock.release();
         }
         if (wakeLock != null && wakeLock.isHeld()) {
             wakeLock.release();

@@ -142,7 +142,7 @@ public class ChildDetailActivity extends Activity {
                         public void run() {
                             if (code == 200) {
                                 Toast.makeText(ChildDetailActivity.this,
-                                        "👏 Övgü mesajı gönderildi ve sesli anons edildi: "" + praiseSpeech + """,
+                                        "👏 Övgü mesajı gönderildi ve sesli anons edildi: '''" + praiseSpeech + "'''",
                                         Toast.LENGTH_LONG).show();
                             } else {
                                 Toast.makeText(ChildDetailActivity.this, "Gönderilemedi (HTTP " + code + ")", Toast.LENGTH_SHORT).show();

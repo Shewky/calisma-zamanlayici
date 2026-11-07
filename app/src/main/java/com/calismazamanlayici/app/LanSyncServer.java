@@ -270,7 +270,9 @@ public class LanSyncServer {
                 mainHandler.post(new Runnable() {
                     @Override
                     public void run() {
+                        service.wakeScreenBriefly();
                         VoiceCallManager.startCall(service, finalParentIp);
+                        service.updateForegroundNotification();
                         Intent callIntent = new Intent(service, CallActivity.class);
                         callIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
                         callIntent.putExtra("EXTRA_PARENT_ROLE", role);

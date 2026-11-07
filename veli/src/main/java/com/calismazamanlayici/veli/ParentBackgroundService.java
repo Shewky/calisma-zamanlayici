@@ -37,19 +37,18 @@ import java.net.NetworkInterface;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.URL;
-import java.util.ArrayList;
 import java.util.Enumeration;
-import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Veli uygulamasında arka planda çalışan servis:
- * 1. Çocuktan gelen çağrıları dinler, titreşim verir ve
- *    "[Kullanıcı İsmi] çağrı gönderiyor. Yanıtlamak için uygulamadan onay ver" sesli anonsunu yapar.
- * 2. Aynı ağda IP adresi değişen çocuk cihazlarını otomatik tarayıp bulur ve güncel kullanıcı ismini eşleştirir.
+ * Veli uygulamasında sürekli arka planda ve ekran kapalıyken bile çalışan servis:
+ * - WakeLock + WifiLock + MulticastLock sayesinde ekran kapalıyken de ağ bağlantısını korur.
+ * - Çocuk çağrı gönderdiğinde ekranı uyandırır, titreşim verir,
+ *   "[Kullanıcı İsmi] çağrı gönderiyor. Yanıtlamak için uygulamadan onay ver" sesli anonsunu yapar
+ *   ve hem tam ekran bildirim hem de onay ekranı çıkarır.
  */
 public class ParentBackgroundService extends Service implements TextToSpeech.OnInitListener {
 
@@ -61,11 +60,15 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
     public static final String EXTRA_SPEECH_TEXT = "extra_speech_text";
 
     private static final String CHANNEL_ID = "VeliMonitorChannel";
+    private static final String CALL_ALERT_CHANNEL_ID = "VeliIncomingCallAlertChannel";
     private static final int NOTIF_ID = 2001;
+    private static final int CALL_ALERT_NOTIF_ID = 2002;
 
     private final IBinder binder = new LocalBinder();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private PowerManager.WakeLock wakeLock;
+    private WifiManager.WifiLock wifiLock;
+    private WifiManager.MulticastLock multicastLock;
     private TextToSpeech tts;
     private boolean ttsReady = false;
     private String pendingSpeech = null;
@@ -84,10 +87,10 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
     @Override
     public void onCreate() {
         super.onCreate();
-        createNotificationChannel();
-        acquireWakeLock();
+        createNotificationChannels();
+        acquireLocks();
         tts = new TextToSpeech(getApplicationContext(), this);
-        startForeground(NOTIF_ID, buildNotification("Veli Takip ve Çağrı Dinleme Aktif"));
+        startForeground(NOTIF_ID, buildNotification("Veli Arka Plan Çağrı ve Takip Servisi Aktif"));
         startServers();
     }
 
@@ -116,20 +119,59 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
         }
     }
 
-    private void acquireWakeLock() {
-        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-        if (pm != null && wakeLock == null) {
-            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "CalismaZamanlayiciVeli::WakeLock");
-            wakeLock.setReferenceCounted(false);
+    private void acquireLocks() {
+        try {
+            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            if (pm != null && wakeLock == null) {
+                wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "CalismaZamanlayiciVeli::WakeLock");
+                wakeLock.setReferenceCounted(false);
+            }
+            if (wakeLock != null && !wakeLock.isHeld()) {
+                wakeLock.acquire();
+            }
+        } catch (Exception ignored) {
         }
-        if (wakeLock != null && !wakeLock.isHeld()) {
-            wakeLock.acquire(6 * 60 * 60 * 1000L);
+        try {
+            WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            if (wm != null) {
+                if (wifiLock == null) {
+                    wifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "CalismaZamanlayiciVeli::WifiLock");
+                    wifiLock.setReferenceCounted(false);
+                }
+                if (!wifiLock.isHeld()) {
+                    wifiLock.acquire();
+                }
+                if (multicastLock == null) {
+                    multicastLock = wm.createMulticastLock("CalismaZamanlayiciVeli::MulticastLock");
+                    multicastLock.setReferenceCounted(false);
+                }
+                if (!multicastLock.isHeld()) {
+                    multicastLock.acquire();
+                }
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void wakeScreenForIncomingCall() {
+        try {
+            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            if (pm != null) {
+                @SuppressWarnings("deprecation")
+                PowerManager.WakeLock screenLock = pm.newWakeLock(
+                        PowerManager.SCREEN_BRIGHT_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                        "CalismaZamanlayiciVeli::CallScreenWake"
+                );
+                screenLock.acquire(12000L);
+            }
+        } catch (Exception ignored) {
         }
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        acquireWakeLock();
+        acquireLocks();
+        startForeground(NOTIF_ID, buildNotification("Veli Arka Plan Çağrı ve Takip Servisi Aktif"));
         if (intent != null && ACTION_SPEAK.equals(intent.getAction())) {
             String text = intent.getStringExtra(EXTRA_SPEECH_TEXT);
             if (text != null && !text.isEmpty()) {
@@ -194,7 +236,6 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
                         String senderIp = pkt.getAddress().getHostAddress();
 
                         if (msg.startsWith("CZ_CHILD_HERE|")) {
-                            // Format: CZ_CHILD_HERE|<childId>|<userName>|<grade>|<ip>|<port>
                             String[] parts = msg.split("\\|");
                             if (parts.length >= 5) {
                                 String childId = parts[1];
@@ -209,7 +250,6 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
                                         ParentBackgroundService.this, childId, userName, grade, ip);
                             }
                         } else if (msg.startsWith("CZ_CALL_FROM_CHILD|")) {
-                            // Format: CZ_CALL_FROM_CHILD|<role>|<childId>|<childName>|<childIp>
                             String[] parts = msg.split("\\|");
                             if (parts.length >= 5) {
                                 String targetRole = parts[1];
@@ -331,16 +371,9 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
         }
     }
 
-    /**
-     * Çocuk çağrı gönderdiğinde:
-     * 1. Titreşim gönderir
-     * 2. "[Kullanıcı İsmi] çağrı gönderiyor. Yanıtlamak için uygulamadan onay ver" sesli anonsunu yapar
-     * 3. Onay ekranını (VeliCallActivity) açar
-     */
     private synchronized void handleIncomingChildCall(final String childId, final String childName, final String childIp) {
         long now = System.currentTimeMillis();
         if (now - lastIncomingAlertTimeMs < 3000L) {
-            // Aynı çağrı için hem UDP hem HTTP gelirse çift anonsu önle
             return;
         }
         lastIncomingAlertTimeMs = now;
@@ -348,6 +381,7 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
         mainHandler.post(new Runnable() {
             @Override
             public void run() {
+                wakeScreenForIncomingCall();
                 vibrateAndChime();
                 String speech = childName + " çağrı gönderiyor. Yanıtlamak için uygulamadan onay ver";
                 speakNow(speech);
@@ -358,19 +392,53 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
                 callIntent.putExtra("EXTRA_CHILD_NAME", childName);
                 callIntent.putExtra("EXTRA_CHILD_IP", childIp);
                 callIntent.putExtra("EXTRA_INCOMING_APPROVAL", true);
-                startActivity(callIntent);
+
+                // Arka plandayken ve ekran kilitliyken bile bildirim ve tam ekran uyarı göster
+                showIncomingCallHighPriorityNotification(childName, callIntent);
+
+                try {
+                    startActivity(callIntent);
+                } catch (Exception ignored) {
+                }
             }
         });
+    }
+
+    private void showIncomingCallHighPriorityNotification(String childName, Intent callIntent) {
+        try {
+            int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                flags |= PendingIntent.FLAG_IMMUTABLE;
+            }
+            PendingIntent fullScreenPi = PendingIntent.getActivity(this, 99, callIntent, flags);
+
+            Notification.Builder b = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                    ? new Notification.Builder(this, CALL_ALERT_CHANNEL_ID)
+                    : new Notification.Builder(this);
+
+            b.setContentTitle("📞 " + childName + " Çağrı Gönderiyor!")
+                    .setContentText("Yanıtlamak ve görüşmeyi başlatmak için dokunun.")
+                    .setSmallIcon(android.R.drawable.sym_action_call)
+                    .setContentIntent(fullScreenPi)
+                    .setFullScreenIntent(fullScreenPi, true)
+                    .setAutoCancel(true);
+
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null) {
+                nm.notify(CALL_ALERT_NOTIF_ID, b.build());
+            }
+        } catch (Exception ignored) {
+        }
     }
 
     private void vibrateAndChime() {
         try {
             Vibrator vib = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
             if (vib != null && vib.hasVibrator()) {
-                vib.vibrate(new long[]{0, 400, 200, 400, 200, 500}, -1);
+                vib.vibrate(new long[]{0, 450, 200, 450, 200, 600}, -1);
             }
-            ToneGenerator tg = new ToneGenerator(AudioManager.STREAM_ALARM, 90);
-            tg.startTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 400);
+            ToneGenerator tg = new ToneGenerator(AudioManager.STREAM_ALARM, 95);
+            tg.startTone(ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD, 450);
         } catch (Exception ignored) {
         }
     }
@@ -398,11 +466,6 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
         }
     }
 
-    /**
-     * Aynı Wi-Fi ağındaki tüm IP adreslerini hızla tarayarak:
-     * 1. IP adresi değişmiş olan eşleşmiş çocuk cihazlarını otomatik bulur ve yeni IP adresini kaydeder.
-     * 2. Çalışma Zamanlayıcı uygulamasına giriş yapılan güncel kullanıcı ismini otomatik eşleştirip ekrana getirir.
-     */
     public static void scanLanAndSyncChildren(final Context context, final boolean pairAllFound, final Runnable onComplete) {
         new Thread(new Runnable() {
             @Override
@@ -411,7 +474,6 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
                     String myIp = getLocalIpAddress(context);
                     String myRole = VeliStorage.getParentRole(context);
 
-                    // 1. Önce UDP Broadcast gönder
                     try {
                         String disc = "CZ_DISCOVER|" + myRole + "|" + myIp;
                         byte[] data = disc.getBytes("UTF-8");
@@ -424,7 +486,6 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
                     } catch (Exception ignored) {
                     }
 
-                    // 2. Aynı /24 alt ağındaki tüm IP'leri paralel olarak hızlıca tara
                     int lastDot = myIp.lastIndexOf('.');
                     if (lastDot > 0 && !myIp.equals("127.0.0.1")) {
                         final String prefix = myIp.substring(0, lastDot + 1);
@@ -456,7 +517,6 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
             sock.connect(new InetSocketAddress(ip, STUDENT_HTTP_PORT), 380);
             sock.close();
 
-            // Port 45678 açık! Şimdi /status bilgisini çekip childId ve userName eşleştir
             URL url = new URL("http://" + ip + ":" + STUDENT_HTTP_PORT + "/status");
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setConnectTimeout(1000);
@@ -537,15 +597,25 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
         }).start();
     }
 
-    private void createNotificationChannel() {
+    private void createNotificationChannels() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationManager nm = getSystemService(NotificationManager.class);
+            if (nm == null) return;
+
             NotificationChannel ch = new NotificationChannel(
                     CHANNEL_ID,
-                    "Veli Çağrı ve Takip Bildirimleri",
+                    "Veli Arka Plan Servisi",
                     NotificationManager.IMPORTANCE_LOW
             );
-            NotificationManager nm = getSystemService(NotificationManager.class);
-            if (nm != null) nm.createNotificationChannel(ch);
+            nm.createNotificationChannel(ch);
+
+            NotificationChannel callCh = new NotificationChannel(
+                    CALL_ALERT_CHANNEL_ID,
+                    "Çocuktan Gelen Çağrı Uyarıları",
+                    NotificationManager.IMPORTANCE_HIGH
+            );
+            callCh.setDescription("Çocuk çağrı gönderdiğinde arka planda sesli ve ekran üstü uyarı verir");
+            nm.createNotificationChannel(callCh);
         }
     }
 
@@ -586,6 +656,12 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
         if (tts != null) {
             tts.stop();
             tts.shutdown();
+        }
+        if (wifiLock != null && wifiLock.isHeld()) {
+            wifiLock.release();
+        }
+        if (multicastLock != null && multicastLock.isHeld()) {
+            multicastLock.release();
         }
         if (wakeLock != null && wakeLock.isHeld()) {
             wakeLock.release();
