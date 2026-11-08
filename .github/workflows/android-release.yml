@@ -28,17 +28,35 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Gradle 8.5 Doğrudan Kurulumu (504 Hatasına Karşı Korumalı)
+      - name: Gradle 8.5 Bağımsız Yansıma Sunucularından Kurulumu (504 Korumalı)
         run: |
-          curl -fsSL --retry 5 https://github.com/gradle/gradle-distributions/releases/download/v8.5.0/gradle-8.5-bin.zip -o /tmp/gradle.zip || curl -fsSL --retry 5 https://services.gradle.org/distributions/gradle-8.5-bin.zip -o /tmp/gradle.zip
-          unzip -q /tmp/gradle.zip -d /tmp
+          if curl -fsSL --connect-timeout 12 https://mirrors.cloud.tencent.com/gradle/gradle-8.5-bin.zip -o /tmp/gradle.zip; then
+            echo "Tencent Cloud yansimasindan indirildi."
+          elif curl -fsSL --connect-timeout 12 https://mirrors.aliyun.com/macports/distfiles/gradle/gradle-8.5-bin.zip -o /tmp/gradle.zip; then
+            echo "Aliyun CDN yansimasindan indirildi."
+          elif curl -fsSL --connect-timeout 12 https://repo.huaweicloud.com/gradle/gradle-8.5-bin.zip -o /tmp/gradle.zip; then
+            echo "Huawei Cloud CDN yansimasindan indirildi."
+          elif curl -fsSL --connect-timeout 12 https://downloads.gradle-dn.com/distributions/gradle-8.5-bin.zip -o /tmp/gradle.zip; then
+            echo "Gradle CDN uzerinden indirildi."
+          fi
+          if [ -f /tmp/gradle.zip ]; then
+            unzip -q /tmp/gradle.zip -d /tmp
+          fi
 
       - name: Öğrenci ve Veli APK Dosyalarını Derle (Android 6+ Uyumlu)
         run: |
-          /tmp/gradle-8.5/bin/gradle assembleRelease --no-daemon \
-            -PversionCode=${{ github.run_number }} \
-            -PversionName=4.0.${{ github.run_number }} \
-            -PgithubRepo=${{ github.repository }}
+          if [ -x /tmp/gradle-8.5/bin/gradle ]; then
+            /tmp/gradle-8.5/bin/gradle assembleRelease --no-daemon \
+              -PversionCode=${{ github.run_number }} \
+              -PversionName=4.0.${{ github.run_number }} \
+              -PgithubRepo=${{ github.repository }}
+          else
+            sed -i "s/8.2.2/8.8.0/g" build.gradle
+            gradle assembleRelease --no-daemon \
+              -PversionCode=${{ github.run_number }} \
+              -PversionName=4.0.${{ github.run_number }} \
+              -PgithubRepo=${{ github.repository }}
+          fi
 
       - name: APK Dosyalarını GitHub Actions Arşivine Yükle
         uses: actions/upload-artifact@v4
