@@ -11,7 +11,11 @@ import android.media.AudioAttributes;
 import android.media.AudioManager;
 import android.media.ToneGenerator;
 import android.net.wifi.WifiManager;
+import android.content.BroadcastReceiver;
+import android.content.IntentFilter;
+import android.os.BatteryManager;
 import android.os.Binder;
+import android.widget.Toast;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -73,6 +77,32 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
     private int subjectElapsedSeconds = 0;
     private int carriedCycleSeconds = 0;
     private boolean breakWarningAnnounced = false;
+    private boolean battery21Announced = false;
+
+    private final BroadcastReceiver batteryReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (intent == null) return;
+            int level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+            int scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
+            int status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
+            if (level < 0 || scale <= 0) return;
+
+            int pct = (level * 100) / scale;
+            boolean isCharging = (status == BatteryManager.BATTERY_STATUS_CHARGING
+                    || status == BatteryManager.BATTERY_STATUS_FULL);
+
+            if (pct > 21 || isCharging) {
+                battery21Announced = false;
+            } else if (pct == 21 && !battery21Announced) {
+                battery21Announced = true;
+                String batteryMsg = "Şarjın azaldı yakın zamanda cihazı şarja takmalısın";
+                wakeScreenBriefly();
+                announce(batteryMsg, false);
+                Toast.makeText(TimerForegroundService.this, "🔋 " + batteryMsg, Toast.LENGTH_LONG).show();
+            }
+        }
+    };
     private String lastAnnouncement = "Hazır";
 
     private long lastTickRealtimeMs = 0L;
@@ -123,6 +153,10 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
         tts = new TextToSpeech(getApplicationContext(), this);
         lanSyncServer = new LanSyncServer(this);
         lanSyncServer.start();
+        try {
+            registerReceiver(batteryReceiver, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+        } catch (Exception ignored) {
+        }
     }
 
     @Override
@@ -318,6 +352,13 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
             }
 
             if (remainingSeconds <= 0) {
+                // 40 dakikalık çalışma tamamlandı! O ana kadar bu derste yapılan çalışmayı anında Takvime kaydet
+                // (Böylece toplam 40 dakika çalışma tamamlandığı için Eğlence kilidi de hemen açılır!)
+                if (subjectElapsedSeconds > 0) {
+                    StudyDatabaseHelper db = new StudyDatabaseHelper(this);
+                    db.insertSession(currentMode, currentSubject, subjectElapsedSeconds);
+                    subjectElapsedSeconds = 0;
+                }
                 StudyDatabaseHelper.resetCarriedCycleSeconds(this);
                 carriedCycleSeconds = 0;
                 currentPhase = PHASE_BREAK;
@@ -605,6 +646,10 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
     @Override
     public void onDestroy() {
         handler.removeCallbacks(tickRunnable);
+        try {
+            unregisterReceiver(batteryReceiver);
+        } catch (Exception ignored) {
+        }
         if (lanSyncServer != null) {
             lanSyncServer.stop();
         }

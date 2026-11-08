@@ -59,6 +59,22 @@ public class VeliMainActivity extends Activity {
 
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private boolean autoRefreshActive = false;
+    private static volatile boolean foregroundVisible = false;
+    private static VeliMainActivity currentInstance = null;
+
+    public static boolean isAppInForeground() {
+        return foregroundVisible;
+    }
+
+    public static void setForegroundVisible(boolean visible) {
+        foregroundVisible = visible;
+    }
+
+    public static void refreshLastMessageOnScreenIfVisible() {
+        if (currentInstance != null && !currentInstance.isFinishing()) {
+            currentInstance.runOnUiThread(currentInstance::updateOtherParentUi);
+        }
+    }
 
     private final Runnable liveStatusPoller = new Runnable() {
         @Override
@@ -450,6 +466,8 @@ public class VeliMainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        currentInstance = this;
+        foregroundVisible = true;
         applyVeliTheme();
         refreshUiState();
         autoRefreshActive = true;
@@ -466,6 +484,7 @@ public class VeliMainActivity extends Activity {
 
     @Override
     protected void onPause() {
+        foregroundVisible = false;
         autoRefreshActive = false;
         uiHandler.removeCallbacks(liveStatusPoller);
         super.onPause();
@@ -576,23 +595,68 @@ public class VeliMainActivity extends Activity {
             btnDirectAra.setTypeface(null, android.graphics.Typeface.BOLD);
 
             btnDirectAra.setOnClickListener(v -> {
-                if (child.ipAddress == null || child.ipAddress.isEmpty()) {
-                    Toast.makeText(VeliMainActivity.this, "Bağlantı kuruluyor, lütfen 1 saniye sonra tekrar basın.", Toast.LENGTH_SHORT).show();
-                    ParentBackgroundService.scanLanAndSyncChildren(VeliMainActivity.this, false, null);
-                    return;
-                }
-                Intent callIntent = new Intent(VeliMainActivity.this, VeliCallActivity.class);
-                callIntent.putExtra("EXTRA_CHILD_ID", child.childId);
-                callIntent.putExtra("EXTRA_CHILD_NAME", child.userName);
-                callIntent.putExtra("EXTRA_CHILD_IP", child.ipAddress);
-                callIntent.putExtra("EXTRA_INCOMING_APPROVAL", false);
-                startActivity(callIntent);
+                checkChildOnlineAndStartDirectCall(child.childId, child.userName, child.ipAddress);
             });
 
             card.addView(infoCol);
             card.addView(btnDirectAra);
             layoutPairedChildrenList.addView(card);
         }
+    }
+
+
+    /**
+     * Çocuk aranırken önce o an çevrimiçi olup olmadığını kontrol eder.
+     * Eğer offline ise "Şu anda offline görünüyor" yazar ve görüşmeyi başlatmaz.
+     */
+    public void checkChildOnlineAndStartDirectCall(final String childId, final String childName, final String childIp) {
+        if (childIp == null || childIp.isEmpty()) {
+            Toast.makeText(this, "⚠️ Şu anda offline görünüyor", Toast.LENGTH_SHORT).show();
+            ParentBackgroundService.scanLanAndSyncChildren(this, false, null);
+            return;
+        }
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                boolean isOnline = false;
+                try {
+                    URL url = new URL("http://" + childIp + ":" + ParentBackgroundService.STUDENT_HTTP_PORT + "/ping");
+                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                    conn.setRequestMethod("GET");
+                    conn.setRequestProperty("Connection", "close");
+                    conn.setConnectTimeout(900);
+                    conn.setReadTimeout(900);
+                    if (conn.getResponseCode() == 200) {
+                        isOnline = true;
+                    }
+                    conn.disconnect();
+                } catch (Exception ignored) {
+                }
+
+                final boolean finalOnline = isOnline;
+                uiHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (isFinishing()) return;
+                        if (!finalOnline) {
+                            Toast.makeText(VeliMainActivity.this, "⚠️ Şu anda offline görünüyor", Toast.LENGTH_SHORT).show();
+                            View v = layoutPairedChildrenList.findViewWithTag("status_" + childId);
+                            if (v instanceof TextView) {
+                                ((TextView) v).setText("⚪ Şu anda offline görünüyor");
+                            }
+                            ParentBackgroundService.scanLanAndSyncChildren(VeliMainActivity.this, false, null);
+                        } else {
+                            Intent callIntent = new Intent(VeliMainActivity.this, VeliCallActivity.class);
+                            callIntent.putExtra("EXTRA_CHILD_ID", childId);
+                            callIntent.putExtra("EXTRA_CHILD_NAME", childName);
+                            callIntent.putExtra("EXTRA_CHILD_IP", childIp);
+                            callIntent.putExtra("EXTRA_INCOMING_APPROVAL", false);
+                            startActivity(callIntent);
+                        }
+                    }
+                });
+            }
+        }).start();
     }
 
     private void pollPairedChildrenStatus() {

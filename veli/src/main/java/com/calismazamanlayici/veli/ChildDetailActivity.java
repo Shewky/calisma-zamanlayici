@@ -137,12 +137,7 @@ public class ChildDetailActivity extends Activity {
         });
 
         btnDirectCallFromDetail.setOnClickListener(v -> {
-            Intent callIntent = new Intent(ChildDetailActivity.this, VeliCallActivity.class);
-            callIntent.putExtra("EXTRA_CHILD_ID", childId);
-            callIntent.putExtra("EXTRA_CHILD_NAME", childName);
-            callIntent.putExtra("EXTRA_CHILD_IP", childIp);
-            callIntent.putExtra("EXTRA_INCOMING_APPROVAL", false);
-            startActivity(callIntent);
+            checkChildOnlineBeforeDetailCall();
         });
 
         btnBack.setOnClickListener(v -> finish());
@@ -168,6 +163,7 @@ public class ChildDetailActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        VeliMainActivity.setForegroundVisible(true);
         refreshRoleBasedPraiseLabels();
         polling = true;
         uiHandler.removeCallbacks(detailPoller);
@@ -176,9 +172,60 @@ public class ChildDetailActivity extends Activity {
 
     @Override
     protected void onPause() {
+        VeliMainActivity.setForegroundVisible(false);
         polling = false;
         uiHandler.removeCallbacks(detailPoller);
         super.onPause();
+    }
+
+    private void checkChildOnlineBeforeDetailCall() {
+        for (VeliStorage.PairedChild c : VeliStorage.getPairedChildren(this)) {
+            if (c.childId.equalsIgnoreCase(childId) && c.ipAddress != null && !c.ipAddress.isEmpty()) {
+                childIp = c.ipAddress;
+                break;
+            }
+        }
+        if (childIp == null || childIp.isEmpty()) {
+            Toast.makeText(this, "⚠️ Şu anda offline görünüyor", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                boolean online = false;
+                try {
+                    URL url = new URL("http://" + childIp + ":" + ParentBackgroundService.STUDENT_HTTP_PORT + "/ping");
+                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                    conn.setRequestMethod("GET");
+                    conn.setRequestProperty("Connection", "close");
+                    conn.setConnectTimeout(900);
+                    conn.setReadTimeout(900);
+                    if (conn.getResponseCode() == 200) {
+                        online = true;
+                    }
+                    conn.disconnect();
+                } catch (Exception ignored) {
+                }
+                final boolean finalOnline = online;
+                uiHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (isFinishing()) return;
+                        if (!finalOnline) {
+                            Toast.makeText(ChildDetailActivity.this, "⚠️ Şu anda offline görünüyor", Toast.LENGTH_SHORT).show();
+                            tvDetailLivePhase.setText("⚪ Şu anda offline görünüyor");
+                        } else {
+                            Intent callIntent = new Intent(ChildDetailActivity.this, VeliCallActivity.class);
+                            callIntent.putExtra("EXTRA_CHILD_ID", childId);
+                            callIntent.putExtra("EXTRA_CHILD_NAME", childName);
+                            callIntent.putExtra("EXTRA_CHILD_IP", childIp);
+                            callIntent.putExtra("EXTRA_INCOMING_APPROVAL", false);
+                            startActivity(callIntent);
+                        }
+                    }
+                });
+            }
+        }).start();
     }
 
     private void sendPraiseToChild(final String parentRole, final String praiseSpeech) {

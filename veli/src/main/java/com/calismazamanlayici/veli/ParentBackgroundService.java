@@ -511,7 +511,9 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
         final String cleanMsg = text.trim();
         VeliStorage.saveLastReceivedParentMessage(this, cleanMsg);
         // Ön ek olmadan doğrudan özelleştirilmiş mesajı okur ve bitince "tekrar dinlemek için uygulamaya dön" der
-        final String fullSpeech = cleanMsg + ". Tekrar dinlemek için uygulamaya dön";
+        final String fullSpeech = VeliMainActivity.isAppInForeground()
+                ? cleanMsg
+                : (cleanMsg + ". Tekrar dinlemek için uygulamaya dön");
 
         mainHandler.post(new Runnable() {
             @Override
@@ -520,6 +522,7 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
                 vibrateAndChime();
                 speakNow(fullSpeech);
                 Toast.makeText(ParentBackgroundService.this, "💬 Gelen Mesaj: " + cleanMsg, Toast.LENGTH_LONG).show();
+                VeliMainActivity.refreshLastMessageOnScreenIfVisible();
             }
         });
     }
