@@ -57,6 +57,7 @@ public class MainActivity extends Activity {
     private Button btnStartHomework;
     private Button btnStartTest;
     private Button btnStartBookRead;
+    private Button btnOpenEntertainment;
     private Button btnOpenCalendar;
     private Button btnOpenRewards;
     private Button btnCallAnne;
@@ -134,6 +135,7 @@ public class MainActivity extends Activity {
         btnStartHomework = findViewById(R.id.btnStartHomework);
         btnStartTest = findViewById(R.id.btnStartTest);
         btnStartBookRead = findViewById(R.id.btnStartBookRead);
+        btnOpenEntertainment = findViewById(R.id.btnOpenEntertainment);
         btnOpenCalendar = findViewById(R.id.btnOpenCalendar);
         btnOpenRewards = findViewById(R.id.btnOpenRewards);
         btnCallAnne = findViewById(R.id.btnCallAnne);
@@ -148,7 +150,7 @@ public class MainActivity extends Activity {
                 StudyDatabaseHelper.GRADE_LABELS
         );
         spinnerOnboardGrade.setAdapter(gradeAdapter);
-        spinnerOnboardGrade.setSelection(3); // 4. Sınıf varsayılan
+        spinnerOnboardGrade.setSelection(3);
 
         tvAppVersionInfo.setText("Çalışma Zamanlayıcı v" + BuildConfig.VERSION_NAME
                 + " (Kod: " + BuildConfig.VERSION_CODE + ") • Android 6+ Uyumlu");
@@ -187,6 +189,23 @@ public class MainActivity extends Activity {
 
         btnStartBookRead.setOnClickListener(v -> {
             startActivity(new Intent(MainActivity.this, BookReadActivity.class));
+        });
+
+        btnOpenEntertainment.setOnClickListener(v -> {
+            StudyDatabaseHelper db = new StudyDatabaseHelper(MainActivity.this);
+            if (!db.isEntertainmentUnlocked(MainActivity.this)) {
+                int remSecs = db.getRemainingStudySecondsToUnlockEntertainment(MainActivity.this);
+                String warnMsg = "Erişim sağlamak için, bugün 40 dakikalık bir çalışma tamamla";
+                speakTextViaService(warnMsg);
+                new AlertDialog.Builder(MainActivity.this)
+                        .setTitle("🔒 Eğlence Bölümü Kilitli")
+                        .setMessage(warnMsg + ".\n\n⏳ Kilidin açılması için kalan çalışma süresi: "
+                                + StudyDatabaseHelper.formatDurationTr(remSecs))
+                        .setPositiveButton("Tamam", null)
+                        .show();
+                return;
+            }
+            startActivity(new Intent(MainActivity.this, EntertainmentActivity.class));
         });
 
         btnOpenCalendar.setOnClickListener(v -> {
@@ -236,14 +255,33 @@ public class MainActivity extends Activity {
 
         requestNecessaryPermissions();
         applyCurrentTheme();
+        refreshDashboardUi();
+
+        // İlk kurulumda veya uygulama silinip tekrar yüklendiğinde öğrenci yedeğini kontrol et
+        BackupManager.checkAndPromptRestoreIfAvailable(this, new Runnable() {
+            @Override
+            public void run() {
+                applyCurrentTheme();
+                refreshDashboardUi();
+            }
+        });
+
         GitHubUpdater.checkUpdates(this, false);
     }
 
-    /**
-     * Çocuk Anne'ye veya Baba'ya çağrı göndermek istediğinde:
-     * Wi-Fi kapalıysa "Wi-Fi açılsın mı?" diye sorar, Evet'e tıklanınca Wi-Fi açılır ve
-     * ekranda "Bağlantı kuruluyor..." yazar; bağlantı kurulunca çağrıyı başlatır.
-     */
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        // Depolama izni onaylandıktan sonra da yedek kontrolünü çalıştır
+        BackupManager.checkAndPromptRestoreIfAvailable(this, new Runnable() {
+            @Override
+            public void run() {
+                applyCurrentTheme();
+                refreshDashboardUi();
+            }
+        });
+    }
+
     private void startOutgoingCallToParent(final String role) {
         if (!LanSyncServer.isWifiConnected(this)) {
             new AlertDialog.Builder(this)
@@ -354,7 +392,7 @@ public class MainActivity extends Activity {
         container.addView(spGrade);
 
         TextView tvThemeLabel = new TextView(this);
-        tvThemeLabel.setText("\n🎨 Neşeli Tema Rengi Seçimi:");
+        tvThemeLabel.setText("\n🎨 Tema Seçimi:");
         tvThemeLabel.setTextSize(15f);
         tvThemeLabel.setTextColor(0xFF1F2937);
         container.addView(tvThemeLabel);
@@ -410,6 +448,12 @@ public class MainActivity extends Activity {
             List<String> perms = new ArrayList<>();
             if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                 perms.add(Manifest.permission.RECORD_AUDIO);
+            }
+            if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                perms.add(Manifest.permission.WRITE_EXTERNAL_STORAGE);
+            }
+            if (checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                perms.add(Manifest.permission.READ_EXTERNAL_STORAGE);
             }
             if (Build.VERSION.SDK_INT >= 33) {
                 if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
@@ -487,7 +531,17 @@ public class MainActivity extends Activity {
             tvTodaySummaryBanner.setText("🎯 Bugün henüz çalışma kaydı yok. Hadi başlayalım " + userName + "!");
         } else {
             tvTodaySummaryBanner.setText("🌟 Harikasın " + userName + "! Bugün " + todayCount
-                    + " çalışma/okuma tamamladın (" + StudyDatabaseHelper.formatDurationTr(todaySecs) + ")");
+                    + " etkinlik tamamladın (" + StudyDatabaseHelper.formatDurationTr(todaySecs) + ")");
+        }
+
+        // Eğlence Butonu Kilit Durumu Kontrolü (40 dakika çalışma şartı)
+        ThemeHelper.Palette p = ThemeHelper.getPalette(this);
+        if (db.isEntertainmentUnlocked(this)) {
+            btnOpenEntertainment.setText("🎮 Eğlence Dünyası (Açık!)");
+            btnOpenEntertainment.setBackground(ThemeHelper.createButtonDrawable(this, p.primaryDark));
+        } else {
+            btnOpenEntertainment.setText("🔒 Eğlence (40 Dk Çalışma Gerekli)");
+            btnOpenEntertainment.setBackground(ThemeHelper.createButtonDrawable(this, 0xFF64748B));
         }
 
         int carriedSecs = StudyDatabaseHelper.getCarriedCycleSeconds(this);
@@ -502,7 +556,6 @@ public class MainActivity extends Activity {
             tvCycleMemoryInfo.setText("⏱️ 40 Dakikalık Çalışma Döngüsü: Tam 40 dakika ile başlamaya hazır!");
         }
 
-        // Cihaz Ağ IP yazısı kaldırıldı! Wi-Fi kapalıysa "Wi-Fi bağlantısını aç" yazar.
         if (waitingForWifiConnection) {
             tvParentConnectionStatus.setText("⏳ Bağlantı kuruluyor...");
         } else if (!LanSyncServer.isWifiConnected(this)) {

@@ -38,7 +38,7 @@ public class CalendarActivity extends Activity {
         ThemeHelper.stylePrimaryButton(this, btnBack);
 
         String userName = StudyDatabaseHelper.getUserName(this);
-        tvCalendarHeaderTitle.setText("📅 " + userName + " • Çalışma ve Okuma Takvimi");
+        tvCalendarHeaderTitle.setText("📅 " + userName + " • Çalışma ve Etkinlik Takvimi");
 
         String today = StudyDatabaseHelper.getTodayDateString();
         loadRecordsForDate(today);
@@ -58,11 +58,14 @@ public class CalendarActivity extends Activity {
         int hwSeconds = 0;
         int testSeconds = 0;
         int bookSeconds = 0;
+        int gameSeconds = 0;
         for (StudyDatabaseHelper.SessionRecord r : records) {
             if (StudyDatabaseHelper.MODE_TEST.equals(r.mode)) {
                 testSeconds += r.durationSeconds;
             } else if (StudyDatabaseHelper.MODE_BOOK.equals(r.mode)) {
                 bookSeconds += r.durationSeconds;
+            } else if (StudyDatabaseHelper.MODE_GAME.equals(r.mode)) {
+                gameSeconds += r.durationSeconds;
             } else {
                 hwSeconds += r.durationSeconds;
             }
@@ -70,14 +73,15 @@ public class CalendarActivity extends Activity {
 
         tvSelectedDateSummary.setText("📚 Ödev: " + StudyDatabaseHelper.formatDurationTr(hwSeconds)
                 + " • 📝 Test: " + StudyDatabaseHelper.formatDurationTr(testSeconds)
-                + " • 📖 Kitap: " + StudyDatabaseHelper.formatDurationTr(bookSeconds));
+                + "\n📖 Kitap: " + StudyDatabaseHelper.formatDurationTr(bookSeconds)
+                + " • 🎮 Oyun: " + StudyDatabaseHelper.formatDurationTr(gameSeconds));
 
         layoutDateRecordsList.removeAllViews();
         int pad = (int) (10 * getResources().getDisplayMetrics().density);
 
         if (records.isEmpty()) {
             TextView emptyTv = new TextView(this);
-            emptyTv.setText("Bu tarihte henüz kaydedilmiş bir ödev, test çözümü veya kitap okuma kaydı bulunmuyor.");
+            emptyTv.setText("Bu tarihte henüz kaydedilmiş bir ödev, test çözümü, kitap okuma veya oyun kaydı bulunmuyor.");
             emptyTv.setTextColor(0xFF4B5563);
             emptyTv.setTextSize(14f);
             emptyTv.setPadding(0, pad, 0, pad);
@@ -92,6 +96,8 @@ public class CalendarActivity extends Activity {
                 icon = "📝 [Test Çözümü] ";
             } else if (StudyDatabaseHelper.MODE_BOOK.equals(rec.mode)) {
                 icon = "📖 [Kitap Okuma] ";
+            } else if (StudyDatabaseHelper.MODE_GAME.equals(rec.mode)) {
+                icon = "🎮 [Eğlence / Oyun] ";
             } else {
                 icon = "📚 [Ödev] ";
             }

@@ -6,13 +6,12 @@ import android.content.SharedPreferences;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 
-/**
- * Veli uygulamasında Anne/Baba rolünü ve karekodla eşleştirilen birden fazla çocuğun
- * bilgilerini (childId, userName, değişen IP adresi, sınıfı) kalıcı olarak saklar.
- */
 public class VeliStorage {
 
     private static final String PREFS_NAME = "CalismaZamanlayiciVeliPrefs";
@@ -21,15 +20,19 @@ public class VeliStorage {
     private static final String KEY_PAIRED_CHILDREN = "paired_children_json";
     private static final String KEY_GITHUB_REPO = "custom_github_repo";
     private static final String KEY_VELI_THEME = "veli_theme_key";
+    private static final String KEY_OTHER_PARENT_IP = "other_parent_ip";
+    private static final String KEY_OTHER_PARENT_LAST_SEEN = "other_parent_last_seen_ms";
+    private static final String KEY_LAST_PARENT_MSG = "last_received_parent_message";
 
-    public static String getThemeKey(Context context) {
+    public static void saveLastReceivedParentMessage(Context context, String msg) {
+        if (msg == null) return;
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        return prefs.getString(KEY_VELI_THEME, VeliThemeHelper.THEME_NAVY_EMERALD);
+        prefs.edit().putString(KEY_LAST_PARENT_MSG, msg.trim()).apply();
     }
 
-    public static void setThemeKey(Context context, String themeKey) {
+    public static String getLastReceivedParentMessage(Context context) {
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        prefs.edit().putString(KEY_VELI_THEME, themeKey).apply();
+        return prefs.getString(KEY_LAST_PARENT_MSG, "");
     }
 
     public static class PairedChild {
@@ -55,11 +58,51 @@ public class VeliStorage {
                 .putBoolean(KEY_ONBOARDED, true)
                 .putString(KEY_PARENT_ROLE, cleanRole)
                 .apply();
+        VeliBackupManager.saveVeliBackupAsync(context);
     }
 
     public static String getParentRole(Context context) {
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         return prefs.getString(KEY_PARENT_ROLE, "ANNE");
+    }
+
+    public static String getOtherParentRole(Context context) {
+        return "BABA".equalsIgnoreCase(getParentRole(context)) ? "ANNE" : "BABA";
+    }
+
+    public static String getOtherParentTitleTr(Context context) {
+        return "BABA".equalsIgnoreCase(getParentRole(context)) ? "👩 Anne" : "👨 Baba";
+    }
+
+    public static void updateOtherParentSeen(Context context, String ip) {
+        if (ip == null || ip.trim().isEmpty()) return;
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        prefs.edit()
+                .putString(KEY_OTHER_PARENT_IP, ip.trim())
+                .putLong(KEY_OTHER_PARENT_LAST_SEEN, System.currentTimeMillis())
+                .apply();
+    }
+
+    public static String getOtherParentIp(Context context) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        return prefs.getString(KEY_OTHER_PARENT_IP, "");
+    }
+
+    public static boolean isOtherParentOnline(Context context) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        long lastSeen = prefs.getLong(KEY_OTHER_PARENT_LAST_SEEN, 0L);
+        return (System.currentTimeMillis() - lastSeen) < 18000L && !getOtherParentIp(context).isEmpty();
+    }
+
+    public static String getThemeKey(Context context) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        return prefs.getString(KEY_VELI_THEME, VeliThemeHelper.THEME_NAVY_EMERALD);
+    }
+
+    public static void setThemeKey(Context context, String themeKey) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        prefs.edit().putString(KEY_VELI_THEME, themeKey).apply();
+        VeliBackupManager.saveVeliBackupAsync(context);
     }
 
     public static List<PairedChild> getPairedChildren(Context context) {
@@ -103,11 +146,9 @@ public class VeliStorage {
         }
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         prefs.edit().putString(KEY_PAIRED_CHILDREN, arr.toString()).apply();
+        VeliBackupManager.saveVeliBackupAsync(context);
     }
 
-    /**
-     * Karekod okutulduğunda veya IP taraması sonucunda çocuğun bilgilerini ekler/günceller.
-     */
     public static synchronized void upsertPairedChild(
             Context context,
             String childId,
@@ -149,9 +190,6 @@ public class VeliStorage {
         savePairedChildren(context, list);
     }
 
-    /**
-     * Sadece eşleşmiş bir çocuğun değişen IP adresini ve güncel kullanıcı ismini otomatik günceller.
-     */
     public static synchronized boolean updateExistingChildNetworkInfo(
             Context context,
             String childId,
@@ -205,5 +243,33 @@ public class VeliStorage {
     public static void setGitHubRepo(Context context, String repo) {
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         prefs.edit().putString(KEY_GITHUB_REPO, repo.trim()).apply();
+    }
+
+    public static JSONObject exportFullVeliBackupJson(Context context) throws Exception {
+        JSONObject root = new JSONObject();
+        String nowStr = new SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.US).format(new Date());
+        root.put("backupType", "VELI");
+        root.put("backupDate", nowStr);
+        root.put("parentRole", getParentRole(context));
+        root.put("themeKey", getThemeKey(context));
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        String childrenJsonStr = prefs.getString(KEY_PAIRED_CHILDREN, "[]");
+        root.put("pairedChildren", new JSONArray(childrenJsonStr));
+        return root;
+    }
+
+    public static void restoreFromVeliBackupJson(Context context, JSONObject root) throws Exception {
+        String role = root.optString("parentRole", "ANNE");
+        String theme = root.optString("themeKey", VeliThemeHelper.THEME_NAVY_EMERALD);
+        JSONArray childrenArr = root.optJSONArray("pairedChildren");
+        if (childrenArr == null) childrenArr = new JSONArray();
+
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        prefs.edit()
+                .putBoolean(KEY_ONBOARDED, true)
+                .putString(KEY_PARENT_ROLE, role)
+                .putString(KEY_VELI_THEME, theme)
+                .putString(KEY_PAIRED_CHILDREN, childrenArr.toString())
+                .apply();
     }
 }

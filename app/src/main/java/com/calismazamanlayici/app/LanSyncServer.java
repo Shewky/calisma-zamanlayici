@@ -342,6 +342,19 @@ public class LanSyncServer {
                 triggerParentAcceptedCall(pIp);
                 responseJson = new JSONObject();
                 responseJson.put("ok", true);
+            } else if (path.startsWith("/save_veli_backup")) {
+                if (!body.isEmpty()) {
+                    BackupManager.saveMirroredVeliBackup(service, body);
+                }
+                responseJson = new JSONObject();
+                responseJson.put("ok", true);
+            } else if (path.startsWith("/get_veli_backup")) {
+                String mirrored = BackupManager.getMirroredVeliBackup(service);
+                if (mirrored != null && !mirrored.isEmpty()) {
+                    responseJson = new JSONObject(mirrored);
+                } else {
+                    responseJson = new JSONObject();
+                }
             } else if (path.startsWith("/end_call")) {
                 mainHandler.post(new Runnable() {
                     @Override

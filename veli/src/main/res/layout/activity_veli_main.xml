@@ -85,9 +85,9 @@
 
             <!-- Üst Başlık Kartı -->
             <LinearLayout
+                android:id="@+id/layoutVeliHeaderCard"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:id="@+id/layoutVeliHeaderCard"
                 android:background="@drawable/bg_veli_header"
                 android:orientation="vertical"
                 android:padding="20dp"
@@ -127,12 +127,12 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
-                    android:text="Aynı Wi-Fi ağındaki çocuklarınızın karekodunu okutarak takip edebilir, övgü gönderebilir ve sesli arayabilirsiniz."
+                    android:text="Aynı Wi-Fi ağındaki çocuklarınızı takip edebilir, diğer veli ile sesli mesajlaşabilir ve arama yapabilirsiniz."
                     android:textColor="#E2E8F0"
                     android:textSize="13sp" />
             </LinearLayout>
 
-            <!-- Karekod Okut ve IP Taraması Butonları -->
+            <!-- Karekod Okut ve Ağ Taraması Butonları -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -143,7 +143,7 @@
                 <Button
                     android:id="@+id/btnScanQrCode"
                     android:layout_width="0dp"
-                    android:layout_height="58dp"
+                    android:layout_height="56dp"
                     android:layout_weight="1"
                     android:layout_marginEnd="6dp"
                     android:background="@drawable/btn_veli_green"
@@ -156,11 +156,76 @@
                 <Button
                     android:id="@+id/btnScanNetworkIps"
                     android:layout_width="0dp"
-                    android:layout_height="58dp"
+                    android:layout_height="56dp"
                     android:layout_weight="1"
                     android:layout_marginStart="6dp"
                     android:background="@drawable/btn_veli_blue"
-                    android:text="🔄 Ağdaki IP'leri Tara &amp; Yenile"
+                    android:text="🔄 Ağdaki Cihazları Yenile"
+                    android:textAllCaps="false"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <!-- YENİ: Anne <-> Baba Birbirini Görme ve Sesli Anons Mesajı Gönderme Kartı -->
+            <LinearLayout
+                android:id="@+id/layoutOtherParentCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_veli_card"
+                android:orientation="vertical"
+                android:padding="15dp"
+                android:layout_marginBottom="14dp">
+
+                <TextView
+                    android:id="@+id/tvOtherParentStatusTitle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="👨 Diğer Veli (Baba): 🔍 Ağda kontrol ediliyor..."
+                    android:textColor="@color/veli_text_dark"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <EditText
+                    android:id="@+id/etOtherParentMessage"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="8dp"
+                    android:hint="Diğer veliye sesli anons mesajı yazın..."
+                    android:inputType="textCapSentences"
+                    android:padding="10dp"
+                    android:textColor="@color/veli_text_dark"
+                    android:textSize="14sp" />
+
+                <Button
+                    android:id="@+id/btnSendOtherParentMessage"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="8dp"
+                    android:background="@drawable/btn_veli_blue"
+                    android:text="🔊 Diğer Veliye Sesli Mesaj Gönder"
+                    android:textAllCaps="false"
+                    android:textColor="#FFFFFF"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvLastReceivedParentMessage"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="📩 Son Gelen Mesaj: Henüz mesaj yok"
+                    android:textColor="@color/veli_text_muted"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+
+                <Button
+                    android:id="@+id/btnRepeatLastParentMessage"
+                    android:layout_width="match_parent"
+                    android:layout_height="46dp"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/btn_veli_green"
+                    android:text="🔁 Son Mesajı Tekrar Et"
                     android:textAllCaps="false"
                     android:textColor="#FFFFFF"
                     android:textSize="14sp"
@@ -198,7 +263,7 @@
                     android:id="@+id/tvVeliVersionInfo"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Veli Uygulaması v3.0 • Arka Plan Çağrı Dinleme Aktif"
+                    android:text="Veli Uygulaması v4.0 • Arka Plan Çağrı Dinleme Aktif"
                     android:textColor="@color/veli_text_muted"
                     android:textSize="13sp"
                     android:layout_marginBottom="8dp" />

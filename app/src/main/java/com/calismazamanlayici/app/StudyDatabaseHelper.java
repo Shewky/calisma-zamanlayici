@@ -8,6 +8,7 @@ import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
 
 import org.json.JSONArray;
+import org.json.JSONObject;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -23,13 +24,13 @@ import java.util.UUID;
 public class StudyDatabaseHelper extends SQLiteOpenHelper {
 
     private static final String DB_NAME = "calisma_zamanlayici_takvim.db";
-    private static final int DB_VERSION = 3;
+    private static final int DB_VERSION = 4;
 
     public static final String TABLE_SESSIONS = "study_sessions";
     public static final String COL_ID = "_id";
     public static final String COL_DATE = "study_date"; // YYYY-MM-DD
     public static final String COL_TIME = "study_time"; // HH:mm
-    public static final String COL_MODE = "study_mode"; // "Ödev", "Test Çözümü", "Kitap Okuma"
+    public static final String COL_MODE = "study_mode"; // "Ödev", "Test Çözümü", "Kitap Okuma", "Oyun"
     public static final String COL_SUBJECT = "subject_name";
     public static final String COL_DURATION = "duration_seconds";
 
@@ -46,17 +47,25 @@ public class StudyDatabaseHelper extends SQLiteOpenHelper {
     private static final String KEY_GITHUB_REPO = "custom_github_repo";
     private static final String KEY_CHILD_DEVICE_ID = "child_unique_device_id";
     private static final String KEY_SUBJECTS_PREFIX = "custom_subjects_grade_";
-    private static final String KEY_PARENT_IP_PREFIX = "paired_parent_ip_"; // ANNE or BABA
+    private static final String KEY_PARENT_IP_PREFIX = "paired_parent_ip_";
+
+    // Eğlence (Oyun) 40 dk çalışma kilidi ve 11 dk uyarı / 12 dk yeniden kilitlenme hafızası
+    private static final String KEY_ENT_DATE = "entertainment_track_date";
+    private static final String KEY_CONSUMED_STUDY_FOR_ENT = "consumed_study_seconds_for_ent";
+    private static final String KEY_CURRENT_ENT_SPENT = "current_ent_spent_seconds";
 
     public static final int FULL_STUDY_CYCLE_SECONDS = 40 * 60; // 40 Dakika
     public static final int FULL_BREAK_CYCLE_SECONDS = 10 * 60; // 10 Dakika
     public static final int BREAK_WARNING_REMAINING_SECONDS = 60;
 
+    public static final int ENTERTAINMENT_WARNING_SECONDS = 11 * 60; // 11. dakikada pop-up uyarı
+    public static final int ENTERTAINMENT_MAX_LIMIT_SECONDS = 12 * 60; // 12. dakikada otomatik çıkış ve yeniden kilitlenme
+
     public static final String MODE_HOMEWORK = "Ödev";
     public static final String MODE_TEST = "Test Çözümü";
     public static final String MODE_BOOK = "Kitap Okuma";
+    public static final String MODE_GAME = "Oyun";
 
-    // Varsayılan 4. Sınıf Dersleri (Matematik'ten hemen sonra Fen Bilimleri dahil)
     public static final String[] DEFAULT_FOURTH_GRADE_SUBJECTS = new String[]{
             "Türkçe",
             "Matematik",
@@ -94,9 +103,11 @@ public class StudyDatabaseHelper extends SQLiteOpenHelper {
         public int totalHomeworkCount;
         public int totalTestCount;
         public int totalBookCount;
+        public int totalGameCount;
         public int totalHomeworkSeconds;
         public int totalTestSeconds;
         public int totalBookSeconds;
+        public int totalGameSeconds;
         public int activeDaysCount;
         public int distinctSubjectsCount;
 
@@ -109,8 +120,11 @@ public class StudyDatabaseHelper extends SQLiteOpenHelper {
         }
     }
 
+    private final Context appContext;
+
     public StudyDatabaseHelper(Context context) {
-        super(context, DB_NAME, null, DB_VERSION);
+        super(context.getApplicationContext(), DB_NAME, null, DB_VERSION);
+        this.appContext = context.getApplicationContext();
     }
 
     @Override
@@ -170,6 +184,7 @@ public class StudyDatabaseHelper extends SQLiteOpenHelper {
                 .putString(KEY_USER_GENDER, gender)
                 .putString(KEY_THEME_COLOR, defaultTheme)
                 .apply();
+        BackupManager.saveStudentBackupAsync(context);
     }
 
     public static String getUserName(Context context) {
@@ -185,6 +200,7 @@ public class StudyDatabaseHelper extends SQLiteOpenHelper {
         if (userName == null || userName.trim().isEmpty()) return;
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         prefs.edit().putString(KEY_USER_NAME, userName.trim()).apply();
+        BackupManager.saveStudentBackupAsync(context);
     }
 
     public static int getGradeLevel(Context context) {
@@ -198,15 +214,15 @@ public class StudyDatabaseHelper extends SQLiteOpenHelper {
         if (gradeLevel < 1 || gradeLevel > 8) gradeLevel = 4;
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         prefs.edit().putInt(KEY_GRADE_LEVEL, gradeLevel).apply();
+        BackupManager.saveStudentBackupAsync(context);
     }
 
-    /**
-     * Seçili sınıfa ait ders listesini döndürür.
-     * 4. sınıfta varsayılan olarak bizim eklediğimiz 8 ders otomatik gelir.
-     * Kullanıcı dilediği sınıfta yeni ders ekleyebilir veya silebilir.
-     */
     public static List<String> getSubjectsForCurrentGrade(Context context) {
         int grade = getGradeLevel(context);
+        return getSubjectsForGrade(context, grade);
+    }
+
+    public static List<String> getSubjectsForGrade(Context context, int grade) {
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         String key = KEY_SUBJECTS_PREFIX + grade;
         String jsonStr = prefs.getString(key, null);
@@ -224,7 +240,6 @@ public class StudyDatabaseHelper extends SQLiteOpenHelper {
             }
         }
 
-        // Eğer 4. sınıf ise varsayılan dersler otomatik gelsin
         if (grade == 4) {
             for (String s : DEFAULT_FOURTH_GRADE_SUBJECTS) {
                 list.add(s);
@@ -243,6 +258,7 @@ public class StudyDatabaseHelper extends SQLiteOpenHelper {
         }
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         prefs.edit().putString(KEY_SUBJECTS_PREFIX + grade, arr.toString()).apply();
+        BackupManager.saveStudentBackupAsync(context);
     }
 
     public static void addSubjectToCurrentGrade(Context context, String newSubject) {
@@ -276,6 +292,7 @@ public class StudyDatabaseHelper extends SQLiteOpenHelper {
     public static void setThemeKey(Context context, String themeKey) {
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         prefs.edit().putString(KEY_THEME_COLOR, themeKey).apply();
+        BackupManager.saveStudentBackupAsync(context);
     }
 
     public static String buildRandomWelcomeAnnouncement(String userName) {
@@ -322,6 +339,9 @@ public class StudyDatabaseHelper extends SQLiteOpenHelper {
         cv.put(COL_SUBJECT, subject);
         cv.put(COL_DURATION, durationSeconds);
         db.insert(TABLE_SESSIONS, null, cv);
+
+        // Yeni kayıt eklendiğinde yedeği otomatik güncelle
+        BackupManager.saveStudentBackupAsync(appContext);
     }
 
     public List<SessionRecord> getSessionsForDate(String dateString) {
@@ -385,9 +405,85 @@ public class StudyDatabaseHelper extends SQLiteOpenHelper {
         List<SessionRecord> records = getSessionsForDate(dateString);
         int sum = 0;
         for (SessionRecord r : records) {
-            sum += r.durationSeconds;
+            if (!MODE_GAME.equals(r.mode)) {
+                sum += r.durationSeconds;
+            }
         }
         return sum;
+    }
+
+    /**
+     * Bugün yapılan toplam çalışma süresini (Ödev + Test + Kitap Okuma; Oyun hariç) döndürür.
+     */
+    public int getTodayStudySecondsExcludingGames() {
+        return getTotalSecondsForDate(getTodayDateString());
+    }
+
+    private static void ensureEntDateCurrent(Context context) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        String savedDate = prefs.getString(KEY_ENT_DATE, "");
+        String today = getTodayDateString();
+        if (!today.equals(savedDate)) {
+            prefs.edit()
+                    .putString(KEY_ENT_DATE, today)
+                    .putInt(KEY_CONSUMED_STUDY_FOR_ENT, 0)
+                    .putInt(KEY_CURRENT_ENT_SPENT, 0)
+                    .apply();
+        }
+    }
+
+    public static int getConsumedStudyForEntSeconds(Context context) {
+        ensureEntDateCurrent(context);
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        return prefs.getInt(KEY_CONSUMED_STUDY_FOR_ENT, 0);
+    }
+
+    public static int getCurrentEntElapsedSafe(Context context) {
+        return getCurrentEntSpentSeconds(context);
+    }
+
+    public static int getCurrentEntSpentSeconds(Context context) {
+        ensureEntDateCurrent(context);
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        return prefs.getInt(KEY_CURRENT_ENT_SPENT, 0);
+    }
+
+    public static void setCurrentEntSpentSeconds(Context context, int seconds) {
+        ensureEntDateCurrent(context);
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        prefs.edit().putInt(KEY_CURRENT_ENT_SPENT, Math.max(0, seconds)).apply();
+    }
+
+    /**
+     * Eğlence özelliğinin açık olup olmadığını kontrol eder:
+     * Günlük kullanılabilir çalışma süresi en az 40 dakika (2400 sn) olmalıdır.
+     */
+    public boolean isEntertainmentUnlocked(Context context) {
+        int todayStudy = getTodayStudySecondsExcludingGames();
+        int consumed = getConsumedStudyForEntSeconds(context);
+        return (todayStudy - consumed) >= FULL_STUDY_CYCLE_SECONDS;
+    }
+
+    public int getRemainingStudySecondsToUnlockEntertainment(Context context) {
+        int todayStudy = getTodayStudySecondsExcludingGames();
+        int consumed = getConsumedStudyForEntSeconds(context);
+        int available = todayStudy - consumed;
+        if (available >= FULL_STUDY_CYCLE_SECONDS) return 0;
+        return FULL_STUDY_CYCLE_SECONDS - Math.max(0, available);
+    }
+
+    /**
+     * Eğlence ekranında 12 dakika dolduğunda (11. dakika uyarısından 1 dk sonra):
+     * Eğlence özelliğini yeniden kilitler ve tekrar açılması için 40 dakika yeni çalışma gerektirir!
+     */
+    public void relockEntertainmentAfterLimit(Context context) {
+        ensureEntDateCurrent(context);
+        int todayStudy = getTodayStudySecondsExcludingGames();
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        prefs.edit()
+                .putInt(KEY_CONSUMED_STUDY_FOR_ENT, todayStudy)
+                .putInt(KEY_CURRENT_ENT_SPENT, 0)
+                .apply();
     }
 
     public WeeklyStats getWeeklyStats() {
@@ -419,18 +515,22 @@ public class StudyDatabaseHelper extends SQLiteOpenHelper {
                 String subject = cursor.getString(cursor.getColumnIndexOrThrow(COL_SUBJECT));
                 int duration = cursor.getInt(cursor.getColumnIndexOrThrow(COL_DURATION));
 
-                activeDays.add(date);
-                subjects.add(subject);
-
-                if (MODE_TEST.equals(mode)) {
-                    stats.totalTestCount++;
-                    stats.totalTestSeconds += duration;
-                } else if (MODE_BOOK.equals(mode)) {
-                    stats.totalBookCount++;
-                    stats.totalBookSeconds += duration;
+                if (MODE_GAME.equals(mode)) {
+                    stats.totalGameCount++;
+                    stats.totalGameSeconds += duration;
                 } else {
-                    stats.totalHomeworkCount++;
-                    stats.totalHomeworkSeconds += duration;
+                    activeDays.add(date);
+                    subjects.add(subject);
+                    if (MODE_TEST.equals(mode)) {
+                        stats.totalTestCount++;
+                        stats.totalTestSeconds += duration;
+                    } else if (MODE_BOOK.equals(mode)) {
+                        stats.totalBookCount++;
+                        stats.totalBookSeconds += duration;
+                    } else {
+                        stats.totalHomeworkCount++;
+                        stats.totalHomeworkSeconds += duration;
+                    }
                 }
             }
             cursor.close();
@@ -505,5 +605,95 @@ public class StudyDatabaseHelper extends SQLiteOpenHelper {
         int mins = totalSeconds / 60;
         int secs = totalSeconds % 60;
         return String.format(Locale.US, "%02d:%02d", mins, secs);
+    }
+
+    /**
+     * Öğrenci uygulamasının tüm profil, ayar ve takvim geçmişini tek bir JSON nesnesine aktarır.
+     */
+    public JSONObject exportFullBackupJson(Context context) throws Exception {
+        JSONObject root = new JSONObject();
+        String nowStr = new SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.US).format(new Date());
+        root.put("backupType", "STUDENT");
+        root.put("backupDate", nowStr);
+        root.put("childId", getChildDeviceId(context));
+        root.put("userName", getUserName(context));
+        root.put("gradeLevel", getGradeLevel(context));
+        root.put("themeKey", getThemeKey(context));
+        root.put("anneIp", getPairedParentIp(context, "ANNE"));
+        root.put("babaIp", getPairedParentIp(context, "BABA"));
+
+        JSONObject gradesObj = new JSONObject();
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        for (int g = 1; g <= 8; g++) {
+            String raw = prefs.getString(KEY_SUBJECTS_PREFIX + g, null);
+            if (raw != null) {
+                gradesObj.put(String.valueOf(g), new JSONArray(raw));
+            }
+        }
+        root.put("customSubjectsByGrade", gradesObj);
+
+        List<SessionRecord> allSessions = getRecentSessions(2000);
+        JSONArray sessArr = new JSONArray();
+        for (int i = allSessions.size() - 1; i >= 0; i--) {
+            SessionRecord r = allSessions.get(i);
+            JSONObject item = new JSONObject();
+            item.put("date", r.date);
+            item.put("time", r.time);
+            item.put("mode", r.mode);
+            item.put("subject", r.subject);
+            item.put("durationSeconds", r.durationSeconds);
+            sessArr.put(item);
+        }
+        root.put("sessions", sessArr);
+        return root;
+    }
+
+    /**
+     * Yedek JSON verisinden tüm profil, ayar ve takvim kayıtlarını geri yükler.
+     */
+    public void restoreFromBackupJson(Context context, JSONObject root) throws Exception {
+        String childId = root.optString("childId", "");
+        String userName = root.optString("userName", "Öğrenci");
+        int gradeLevel = root.optInt("gradeLevel", 4);
+        String themeKey = root.optString("themeKey", ThemeHelper.THEME_BLUE);
+        String anneIp = root.optString("anneIp", "");
+        String babaIp = root.optString("babaIp", "");
+
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        SharedPreferences.Editor ed = prefs.edit();
+        ed.putBoolean(KEY_ONBOARDED, true);
+        if (!childId.isEmpty()) ed.putString(KEY_CHILD_DEVICE_ID, childId);
+        ed.putString(KEY_USER_NAME, userName);
+        ed.putInt(KEY_GRADE_LEVEL, gradeLevel);
+        ed.putString(KEY_THEME_COLOR, themeKey);
+        if (!anneIp.isEmpty()) ed.putString(KEY_PARENT_IP_PREFIX + "ANNE", anneIp);
+        if (!babaIp.isEmpty()) ed.putString(KEY_PARENT_IP_PREFIX + "BABA", babaIp);
+
+        JSONObject gradesObj = root.optJSONObject("customSubjectsByGrade");
+        if (gradesObj != null) {
+            for (int g = 1; g <= 8; g++) {
+                JSONArray arr = gradesObj.optJSONArray(String.valueOf(g));
+                if (arr != null) {
+                    ed.putString(KEY_SUBJECTS_PREFIX + g, arr.toString());
+                }
+            }
+        }
+        ed.apply();
+
+        JSONArray sessArr = root.optJSONArray("sessions");
+        if (sessArr != null) {
+            SQLiteDatabase db = getWritableDatabase();
+            db.delete(TABLE_SESSIONS, null, null);
+            for (int i = 0; i < sessArr.length(); i++) {
+                JSONObject item = sessArr.getJSONObject(i);
+                ContentValues cv = new ContentValues();
+                cv.put(COL_DATE, item.optString("date", getTodayDateString()));
+                cv.put(COL_TIME, item.optString("time", "12:00"));
+                cv.put(COL_MODE, item.optString("mode", MODE_HOMEWORK));
+                cv.put(COL_SUBJECT, item.optString("subject", "Türkçe"));
+                cv.put(COL_DURATION, item.optInt("durationSeconds", 60));
+                db.insert(TABLE_SESSIONS, null, cv);
+            }
+        }
     }
 }

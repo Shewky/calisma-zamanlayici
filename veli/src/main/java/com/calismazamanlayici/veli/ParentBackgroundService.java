@@ -10,6 +10,7 @@ import android.content.Intent;
 import android.media.AudioAttributes;
 import android.media.AudioManager;
 import android.media.ToneGenerator;
+import android.net.Uri;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.Binder;
@@ -21,10 +22,13 @@ import android.os.Looper;
 import android.os.PowerManager;
 import android.os.Vibrator;
 import android.speech.tts.TextToSpeech;
+import android.widget.Toast;
 
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.DatagramPacket;
@@ -37,6 +41,7 @@ import java.net.NetworkInterface;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.URL;
+import java.net.URLDecoder;
 import java.util.Enumeration;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
@@ -45,10 +50,10 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Veli uygulamasında sürekli arka planda ve ekran kapalıyken bile çalışan servis:
- * - WakeLock + WifiLock + MulticastLock sayesinde ekran kapalıyken de ağ bağlantısını korur.
- * - Çocuk çağrı gönderdiğinde ekranı uyandırır, titreşim verir,
- *   "[Kullanıcı İsmi] çağrı gönderiyor. Yanıtlamak için uygulamadan onay ver" sesli anonsunu yapar
- *   ve hem tam ekran bildirim hem de onay ekranı çıkarır.
+ * 1. Çocuktan gelen çağrıları SADECE veli rolü (Anne/Baba) eşleşiyorsa çaldırır.
+ * 2. Öğrenci çağrıyı iptal ettiğinde titreşimi, anonsu ve çağrı ekranını anında kapatır.
+ * 3. Anne ve Baba'nın birbirini ağda görmesini ve birbirlerine sesli mesaj göndermesini sağlar.
+ * 4. Öğrenci yedeğini saklar ve gerektiğinde geri yükleme için sunar.
  */
 public class ParentBackgroundService extends Service implements TextToSpeech.OnInitListener {
 
@@ -77,6 +82,7 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
     private ServerSocket httpServer;
     private DatagramSocket udpSocket;
     private long lastIncomingAlertTimeMs = 0L;
+    private long lastParentMsgTimeMs = 0L;
 
     public class LocalBinder extends Binder {
         public ParentBackgroundService getService() {
@@ -153,7 +159,7 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
         }
     }
 
-    private void wakeScreenForIncomingCall() {
+    private void wakeScreenBriefly() {
         try {
             PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
             if (pm != null) {
@@ -162,7 +168,7 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
                         PowerManager.SCREEN_BRIGHT_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP,
                         "CalismaZamanlayiciVeli::CallScreenWake"
                 );
-                screenLock.acquire(12000L);
+                screenLock.acquire(10000L);
             }
         } catch (Exception ignored) {
         }
@@ -185,6 +191,7 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
         if (running) return;
         running = true;
         startUdpListener();
+        startParentPresenceBeacon();
         startHttpServer();
     }
 
@@ -219,6 +226,40 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
         return "127.0.0.1";
     }
 
+    /**
+     * Diğer velinin (Anne <-> Baba) bu cihazı otomatik görebilmesi için periyodik UDP varlık sinyali yayar.
+     */
+    private void startParentPresenceBeacon() {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                while (running) {
+                    try {
+                        if (VeliStorage.isOnboarded(ParentBackgroundService.this)) {
+                            String myRole = VeliStorage.getParentRole(ParentBackgroundService.this);
+                            String myIp = getLocalIpAddress(ParentBackgroundService.this);
+                            if (!myIp.equals("127.0.0.1")) {
+                                String msg = "CZ_PARENT_HERE|" + myRole + "|" + myIp;
+                                byte[] data = msg.getBytes("UTF-8");
+                                DatagramSocket ds = new DatagramSocket();
+                                ds.setBroadcast(true);
+                                ds.send(new DatagramPacket(data, data.length,
+                                        InetAddress.getByName("255.255.255.255"), DISCOVERY_UDP_PORT));
+                                ds.close();
+                            }
+                        }
+                    } catch (Exception ignored) {
+                    }
+                    try {
+                        Thread.sleep(4000L);
+                    } catch (InterruptedException e) {
+                        break;
+                    }
+                }
+            }
+        }, "VeliPresenceBeacon").start();
+    }
+
     private void startUdpListener() {
         new Thread(new Runnable() {
             @Override
@@ -227,13 +268,14 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
                     udpSocket = new DatagramSocket(null);
                     udpSocket.setReuseAddress(true);
                     udpSocket.bind(new InetSocketAddress(DISCOVERY_UDP_PORT));
-                    byte[] buf = new byte[1024];
+                    byte[] buf = new byte[2048];
 
                     while (running && !udpSocket.isClosed()) {
                         DatagramPacket pkt = new DatagramPacket(buf, buf.length);
                         udpSocket.receive(pkt);
                         String msg = new String(pkt.getData(), 0, pkt.getLength(), "UTF-8").trim();
                         String senderIp = pkt.getAddress().getHostAddress();
+                        String myRole = VeliStorage.getParentRole(ParentBackgroundService.this);
 
                         if (msg.startsWith("CZ_CHILD_HERE|")) {
                             String[] parts = msg.split("\\|");
@@ -249,6 +291,25 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
                                 VeliStorage.updateExistingChildNetworkInfo(
                                         ParentBackgroundService.this, childId, userName, grade, ip);
                             }
+                        } else if (msg.startsWith("CZ_PARENT_HERE|")) {
+                            String[] parts = msg.split("\\|");
+                            if (parts.length >= 3) {
+                                String role = parts[1];
+                                String ip = (senderIp != null && !senderIp.isEmpty()) ? senderIp : parts[2];
+                                if (!myRole.equalsIgnoreCase(role)) {
+                                    VeliStorage.updateOtherParentSeen(ParentBackgroundService.this, ip);
+                                }
+                            }
+                        } else if (msg.startsWith("CZ_PARENT_MSG|")) {
+                            // Format: CZ_PARENT_MSG|<fromRole>|<messageText>
+                            String[] parts = msg.split("\\|", 3);
+                            if (parts.length >= 3) {
+                                String fromRole = parts[1];
+                                String text = parts[2];
+                                if (!myRole.equalsIgnoreCase(fromRole)) {
+                                    handleIncomingParentMessage(fromRole, text);
+                                }
+                            }
                         } else if (msg.startsWith("CZ_CALL_FROM_CHILD|")) {
                             String[] parts = msg.split("\\|");
                             if (parts.length >= 5) {
@@ -259,11 +320,13 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
                                 VeliStorage.updateExistingChildNetworkInfo(
                                         ParentBackgroundService.this, childId, childName, 4, childIp);
 
-                                String myRole = VeliStorage.getParentRole(ParentBackgroundService.this);
                                 if (myRole.equalsIgnoreCase(targetRole)) {
                                     handleIncomingChildCall(childId, childName, childIp);
                                 }
                             }
+                        } else if (msg.startsWith("CZ_CANCEL_CALL|")) {
+                            // Öğrenci çağrıyı iptal etti!
+                            cancelIncomingOrActiveCall();
                         }
                     }
                 } catch (Exception ignored) {
@@ -277,7 +340,9 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
             @Override
             public void run() {
                 try {
-                    httpServer = new ServerSocket(PARENT_HTTP_PORT);
+                    httpServer = new ServerSocket();
+                    httpServer.setReuseAddress(true);
+                    httpServer.bind(new InetSocketAddress(PARENT_HTTP_PORT));
                     while (running && !httpServer.isClosed()) {
                         final Socket client = httpServer.accept();
                         new Thread(new Runnable() {
@@ -298,9 +363,9 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
             client.setSoTimeout(4000);
             client.setTcpNoDelay(true);
             String remoteIp = client.getInetAddress().getHostAddress();
-            java.io.InputStream in = client.getInputStream();
+            InputStream in = client.getInputStream();
 
-            java.io.ByteArrayOutputStream headerBuf = new java.io.ByteArrayOutputStream();
+            ByteArrayOutputStream headerBuf = new ByteArrayOutputStream();
             int b;
             int state = 0;
             while ((b = in.read()) != -1) {
@@ -317,14 +382,14 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
             }
 
             String headerStr = new String(headerBuf.toByteArray(), "UTF-8");
-            String[] lines = headerStr.split("\\r\\n");
+            String[] lines = headerStr.split("\r\n");
             if (lines.length == 0 || lines[0].isEmpty()) {
                 client.close();
                 return;
             }
             String[] reqParts = lines[0].split(" ");
             String fullUri = reqParts.length > 1 ? reqParts[1] : "/";
-            android.net.Uri parsedUri = android.net.Uri.parse("http://localhost" + fullUri);
+            Uri parsedUri = Uri.parse("http://localhost" + fullUri);
             String path = parsedUri.getPath() != null ? parsedUri.getPath() : "/";
 
             int contentLength = 0;
@@ -339,7 +404,7 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
             }
 
             String body = "";
-            if (contentLength > 0 && contentLength < 65536) {
+            if (contentLength > 0 && contentLength < 131072) {
                 byte[] bodyBytes = new byte[contentLength];
                 int totalRead = 0;
                 while (totalRead < contentLength) {
@@ -350,46 +415,81 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
                 body = new String(bodyBytes, 0, totalRead, "UTF-8");
             }
 
+            int statusCode = 200;
             JSONObject resp = new JSONObject();
             resp.put("ok", true);
+            String myRole = VeliStorage.getParentRole(this);
 
-            if (path.startsWith("/incoming_call_from_child")) {
+            if (path.startsWith("/parent_status")) {
+                resp.put("parentRole", myRole);
+                resp.put("online", true);
+            } else if (path.startsWith("/parent_message")) {
+                String fromRole = parsedUri.getQueryParameter("fromRole");
+                String text = parsedUri.getQueryParameter("text");
+                if (text != null) {
+                    try {
+                        text = URLDecoder.decode(text, "UTF-8");
+                    } catch (Exception ignored) {
+                    }
+                }
+                if (remoteIp != null && !remoteIp.isEmpty() && fromRole != null && !myRole.equalsIgnoreCase(fromRole)) {
+                    VeliStorage.updateOtherParentSeen(this, remoteIp);
+                }
+                handleIncomingParentMessage(fromRole != null ? fromRole : "ANNE", text != null ? text : "");
+            } else if (path.startsWith("/incoming_call_from_child")) {
+                String targetRole = parsedUri.getQueryParameter("role");
                 String childId = parsedUri.getQueryParameter("childId");
                 String childName = parsedUri.getQueryParameter("childName");
                 String childIp = parsedUri.getQueryParameter("childIp");
                 if ((childName == null || childName.isEmpty()) && !body.isEmpty()) {
                     JSONObject req = new JSONObject(body);
+                    targetRole = req.optString("targetRole", "");
                     childId = req.optString("childId", "");
                     childName = req.optString("childName", "Öğrenci");
                     childIp = req.optString("childIp", remoteIp);
                 }
-                if (childId == null) childId = "";
-                if (childName == null || childName.isEmpty()) childName = "Öğrenci";
-                if (childIp == null || childIp.isEmpty()) childIp = remoteIp;
+                // Hedef rol bu velinin rolü değilse kesinlikle çaldırma!
+                if (targetRole != null && !targetRole.isEmpty() && !myRole.equalsIgnoreCase(targetRole)) {
+                    statusCode = 409;
+                    resp.put("ok", false);
+                    resp.put("actualRole", myRole);
+                } else {
+                    if (childId == null) childId = "";
+                    if (childName == null || childName.isEmpty()) childName = "Öğrenci";
+                    if (childIp == null || childIp.isEmpty()) childIp = remoteIp;
 
-                if (!childId.isEmpty()) {
-                    VeliStorage.updateExistingChildNetworkInfo(this, childId, childName, 4, childIp);
-                }
-                handleIncomingChildCall(childId, childName, childIp);
-            } else if (path.startsWith("/end_call")) {
-                mainHandler.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        VeliVoiceCallManager.stopCall(ParentBackgroundService.this);
-                        VeliCallActivity.notifyCallEndedRemotely();
+                    if (!childId.isEmpty()) {
+                        VeliStorage.updateExistingChildNetworkInfo(this, childId, childName, 4, childIp);
                     }
-                });
+                    handleIncomingChildCall(childId, childName, childIp);
+                }
+            } else if (path.startsWith("/end_call")) {
+                cancelIncomingOrActiveCall();
+            } else if (path.startsWith("/save_child_backup")) {
+                if (!body.isEmpty()) {
+                    VeliBackupManager.saveMirroredChildBackup(this, body);
+                }
+            } else if (path.startsWith("/get_child_backup")) {
+                String mirrored = VeliBackupManager.getMirroredChildBackup(this);
+                if (mirrored != null && !mirrored.isEmpty()) {
+                    resp = new JSONObject(mirrored);
+                }
             }
 
             byte[] respBytes = resp.toString().getBytes("UTF-8");
             OutputStream out = client.getOutputStream();
-            String headers = "HTTP/1.1 200 OK\r\n"
+            String statusText = (statusCode == 200) ? "200 OK" : "409 Conflict";
+            String headers = "HTTP/1.1 " + statusText + "\r\n"
                     + "Content-Type: application/json; charset=utf-8\r\n"
                     + "Content-Length: " + respBytes.length + "\r\n"
                     + "Connection: close\r\n\r\n";
             out.write(headers.getBytes("UTF-8"));
             out.write(respBytes);
             out.flush();
+            try {
+                client.shutdownOutput();
+            } catch (Exception ignored) {
+            }
             client.close();
         } catch (Exception ignored) {
             try {
@@ -397,6 +497,31 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
             } catch (Exception ignored2) {
             }
         }
+    }
+
+    /**
+     * Diğer veliden (Anne <-> Baba) gelen özelleştirilmiş mesajı sesli anons eder ve ekranda gösterir.
+     */
+    private synchronized void handleIncomingParentMessage(final String fromRole, final String text) {
+        if (text == null || text.trim().isEmpty()) return;
+        long now = System.currentTimeMillis();
+        if (now - lastParentMsgTimeMs < 1500L) return;
+        lastParentMsgTimeMs = now;
+
+        final String cleanMsg = text.trim();
+        VeliStorage.saveLastReceivedParentMessage(this, cleanMsg);
+        // Ön ek olmadan doğrudan özelleştirilmiş mesajı okur ve bitince "tekrar dinlemek için uygulamaya dön" der
+        final String fullSpeech = cleanMsg + ". Tekrar dinlemek için uygulamaya dön";
+
+        mainHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                wakeScreenBriefly();
+                vibrateAndChime();
+                speakNow(fullSpeech);
+                Toast.makeText(ParentBackgroundService.this, "💬 Gelen Mesaj: " + cleanMsg, Toast.LENGTH_LONG).show();
+            }
+        });
     }
 
     private synchronized void handleIncomingChildCall(final String childId, final String childName, final String childIp) {
@@ -409,7 +534,7 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
         mainHandler.post(new Runnable() {
             @Override
             public void run() {
-                wakeScreenForIncomingCall();
+                wakeScreenBriefly();
                 vibrateAndChime();
                 String speech = childName + " çağrı gönderiyor. Yanıtlamak için uygulamadan onay ver";
                 speakNow(speech);
@@ -421,13 +546,39 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
                 callIntent.putExtra("EXTRA_CHILD_IP", childIp);
                 callIntent.putExtra("EXTRA_INCOMING_APPROVAL", true);
 
-                // Arka plandayken ve ekran kilitliyken bile bildirim ve tam ekran uyarı göster
                 showIncomingCallHighPriorityNotification(childName, callIntent);
 
                 try {
                     startActivity(callIntent);
                 } catch (Exception ignored) {
                 }
+            }
+        });
+    }
+
+    /**
+     * Öğrenci aramayı iptal ettiğinde titreşimi, konuşmayı, bildirimi ve çağrı ekranını anında kapatır.
+     */
+    public void cancelIncomingOrActiveCall() {
+        mainHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    Vibrator vib = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
+                    if (vib != null) vib.cancel();
+                } catch (Exception ignored) {
+                }
+                try {
+                    if (tts != null) tts.stop();
+                } catch (Exception ignored) {
+                }
+                try {
+                    NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                    if (nm != null) nm.cancel(CALL_ALERT_NOTIF_ID);
+                } catch (Exception ignored) {
+                }
+                VeliVoiceCallManager.stopCall(ParentBackgroundService.this);
+                VeliCallActivity.notifyCallEndedRemotely();
             }
         });
     }
@@ -524,11 +675,12 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
                                 @Override
                                 public void run() {
                                     probeCandidateIp(context, candidateIp, pairAllFound);
+                                    probeOtherParentIp(context, candidateIp);
                                 }
                             });
                         }
                         pool.shutdown();
-                        pool.awaitTermination(4, TimeUnit.SECONDS);
+                        pool.awaitTermination(3500L, TimeUnit.MILLISECONDS);
                     }
                 } catch (Exception ignored) {
                 }
@@ -539,16 +691,48 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
         }, "LanSubnetScanner").start();
     }
 
+    private static void probeOtherParentIp(Context context, String ip) {
+        try {
+            Socket sock = new Socket();
+            sock.connect(new InetSocketAddress(ip, PARENT_HTTP_PORT), 280);
+            sock.close();
+
+            URL url = new URL("http://" + ip + ":" + PARENT_HTTP_PORT + "/parent_status");
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
+            conn.setRequestProperty("Connection", "close");
+            conn.setConnectTimeout(800);
+            conn.setReadTimeout(800);
+            if (conn.getResponseCode() == 200) {
+                BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream(), "UTF-8"));
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    sb.append(line);
+                }
+                reader.close();
+                JSONObject obj = new JSONObject(sb.toString());
+                String foundRole = obj.optString("parentRole", "");
+                String myRole = VeliStorage.getParentRole(context);
+                if (!foundRole.isEmpty() && !myRole.equalsIgnoreCase(foundRole)) {
+                    VeliStorage.updateOtherParentSeen(context, ip);
+                }
+            }
+            conn.disconnect();
+        } catch (Exception ignored) {
+        }
+    }
+
     private static void probeCandidateIp(Context context, String ip, boolean pairAllFound) {
         try {
             Socket sock = new Socket();
-            sock.connect(new InetSocketAddress(ip, STUDENT_HTTP_PORT), 380);
+            sock.connect(new InetSocketAddress(ip, STUDENT_HTTP_PORT), 320);
             sock.close();
 
             URL url = new URL("http://" + ip + ":" + STUDENT_HTTP_PORT + "/status");
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-            conn.setConnectTimeout(1000);
-            conn.setReadTimeout(1000);
+            conn.setConnectTimeout(900);
+            conn.setReadTimeout(900);
             if (conn.getResponseCode() == 200) {
                 BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream(), "UTF-8"));
                 StringBuilder sb = new StringBuilder();
@@ -577,6 +761,7 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
                     }
                 }
             }
+            conn.disconnect();
         } catch (Exception ignored) {
         }
     }
@@ -586,22 +771,14 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
             @Override
             public void run() {
                 try {
-                    JSONObject body = new JSONObject();
-                    body.put("parentRole", VeliStorage.getParentRole(context));
-                    body.put("parentIp", getLocalIpAddress(context));
-                    byte[] payload = body.toString().getBytes("UTF-8");
-
-                    URL url = new URL("http://" + childIp + ":" + STUDENT_HTTP_PORT + "/pair");
+                    String role = VeliStorage.getParentRole(context);
+                    String myIp = getLocalIpAddress(context);
+                    URL url = new URL("http://" + childIp + ":" + STUDENT_HTTP_PORT + "/pair?role=" + role + "&ip=" + myIp);
                     HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                    conn.setRequestMethod("POST");
-                    conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-                    conn.setConnectTimeout(2000);
-                    conn.setReadTimeout(2000);
-                    conn.setDoOutput(true);
-                    OutputStream os = conn.getOutputStream();
-                    os.write(payload);
-                    os.flush();
-                    os.close();
+                    conn.setRequestMethod("GET");
+                    conn.setRequestProperty("Connection", "close");
+                    conn.setConnectTimeout(1500);
+                    conn.setReadTimeout(1500);
                     if (conn.getResponseCode() == 200) {
                         BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream(), "UTF-8"));
                         StringBuilder sb = new StringBuilder();
@@ -616,9 +793,10 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
                         int grade = resp.optInt("gradeLevel", 4);
                         if (!childId.isEmpty()) {
                             VeliStorage.upsertPairedChild(
-                                    context, childId, userName, grade, childIp, VeliStorage.getParentRole(context));
+                                    context, childId, userName, grade, childIp, role);
                         }
                     }
+                    conn.disconnect();
                 } catch (Exception ignored) {
                 }
             }

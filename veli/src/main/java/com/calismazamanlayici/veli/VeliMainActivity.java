@@ -16,6 +16,7 @@ import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
@@ -27,8 +28,12 @@ import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
 import java.net.HttpURLConnection;
+import java.net.InetAddress;
 import java.net.URL;
+import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -41,6 +46,11 @@ public class VeliMainActivity extends Activity {
     private RadioButton rbRoleAnne;
     private RadioButton rbRoleBaba;
     private TextView tvVeliHeaderTitle;
+    private TextView tvOtherParentStatusTitle;
+    private EditText etOtherParentMessage;
+    private Button btnSendOtherParentMessage;
+    private TextView tvLastReceivedParentMessage;
+    private Button btnRepeatLastParentMessage;
     private TextView tvVeliVersionInfo;
     private LinearLayout layoutPairedChildrenList;
     private Button btnScanQrCode;
@@ -55,7 +65,8 @@ public class VeliMainActivity extends Activity {
         public void run() {
             if (!autoRefreshActive) return;
             pollPairedChildrenStatus();
-            uiHandler.postDelayed(this, 3500L);
+            pollOtherParentStatus();
+            uiHandler.postDelayed(this, 3000L);
         }
     };
 
@@ -73,6 +84,24 @@ public class VeliMainActivity extends Activity {
         Button btnSaveVeliRole = findViewById(R.id.btnSaveVeliRole);
 
         tvVeliHeaderTitle = findViewById(R.id.tvVeliHeaderTitle);
+        tvOtherParentStatusTitle = findViewById(R.id.tvOtherParentStatusTitle);
+        etOtherParentMessage = findViewById(R.id.etOtherParentMessage);
+        btnSendOtherParentMessage = findViewById(R.id.btnSendOtherParentMessage);
+        tvLastReceivedParentMessage = findViewById(R.id.tvLastReceivedParentMessage);
+        btnRepeatLastParentMessage = findViewById(R.id.btnRepeatLastParentMessage);
+
+        btnRepeatLastParentMessage.setOnClickListener(v -> {
+            String lastMsg = VeliStorage.getLastReceivedParentMessage(VeliMainActivity.this);
+            if (lastMsg == null || lastMsg.trim().isEmpty()) {
+                Toast.makeText(VeliMainActivity.this, "Henüz tekrar edilecek bir mesaj bulunmuyor.", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            Intent speakIntent = new Intent(VeliMainActivity.this, ParentBackgroundService.class);
+            speakIntent.setAction(ParentBackgroundService.ACTION_SPEAK);
+            speakIntent.putExtra(ParentBackgroundService.EXTRA_SPEECH_TEXT, lastMsg);
+            startService(speakIntent);
+            Toast.makeText(VeliMainActivity.this, "🔊 Son mesaj tekrar okunuyor:  + lastMsg + ", Toast.LENGTH_SHORT).show();
+        });
         tvVeliVersionInfo = findViewById(R.id.tvVeliVersionInfo);
         Button btnChangeVeliRole = findViewById(R.id.btnChangeVeliRole);
         btnScanQrCode = findViewById(R.id.btnScanQrCode);
@@ -97,15 +126,26 @@ public class VeliMainActivity extends Activity {
         });
 
         btnScanNetworkIps.setOnClickListener(v -> {
-            Toast.makeText(VeliMainActivity.this, "🔍 Ağdaki öğrenci cihazları taranıyor...", Toast.LENGTH_SHORT).show();
+            Toast.makeText(VeliMainActivity.this, "🔍 Ağdaki cihazlar taranıyor...", Toast.LENGTH_SHORT).show();
             ParentBackgroundService.scanLanAndSyncChildren(VeliMainActivity.this, false, new Runnable() {
                 @Override
                 public void run() {
                     renderChildrenCards();
                     pollPairedChildrenStatus();
-                    Toast.makeText(VeliMainActivity.this, "✅ Cihaz ve isim eşleştirmesi yenilendi!", Toast.LENGTH_SHORT).show();
+                    updateOtherParentUi();
+                    Toast.makeText(VeliMainActivity.this, "✅ Cihazlar ve durumlar yenilendi!", Toast.LENGTH_SHORT).show();
                 }
             });
+        });
+
+        btnSendOtherParentMessage.setOnClickListener(v -> {
+            String msg = etOtherParentMessage.getText().toString().trim();
+            if (msg.isEmpty()) {
+                Toast.makeText(VeliMainActivity.this, "Lütfen göndermek istediğiniz mesajı yazın ✍️", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            sendVoiceMessageToOtherParent(msg);
+            etOtherParentMessage.setText("");
         });
 
         btnVeliCheckUpdate.setOnClickListener(v -> {
@@ -126,7 +166,29 @@ public class VeliMainActivity extends Activity {
         requestVeliPermissions();
         applyVeliTheme();
         refreshUiState();
+
+        // Veli uygulaması silinip tekrar kurulduysa yedeği kontrol et ve sor
+        VeliBackupManager.checkAndPromptRestoreIfAvailable(this, new Runnable() {
+            @Override
+            public void run() {
+                applyVeliTheme();
+                refreshUiState();
+            }
+        });
+
         VeliGitHubUpdater.checkUpdates(this, false);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        VeliBackupManager.checkAndPromptRestoreIfAvailable(this, new Runnable() {
+            @Override
+            public void run() {
+                applyVeliTheme();
+                refreshUiState();
+            }
+        });
     }
 
     private void applyVeliTheme() {
@@ -137,13 +199,141 @@ public class VeliMainActivity extends Activity {
         }
         btnScanQrCode.setBackground(VeliThemeHelper.createButtonDrawable(this, p.accent));
         btnScanNetworkIps.setBackground(VeliThemeHelper.createButtonDrawable(this, p.primary));
+        btnSendOtherParentMessage.setBackground(VeliThemeHelper.createButtonDrawable(this, p.primaryDark));
+        if (btnRepeatLastParentMessage != null) {
+            btnRepeatLastParentMessage.setBackground(VeliThemeHelper.createButtonDrawable(this, p.secondary));
+        }
         btnVeliCheckUpdate.setBackground(VeliThemeHelper.createButtonDrawable(this, p.secondary));
     }
 
+    private void updateOtherParentUi() {
+        String otherTitle = VeliStorage.getOtherParentTitleTr(this);
+        boolean online = VeliStorage.isOtherParentOnline(this);
+        if (online) {
+            tvOtherParentStatusTitle.setText(otherTitle + " Durumu: 🟢 Çevrimiçi");
+        } else {
+            tvOtherParentStatusTitle.setText(otherTitle + " Durumu: ⚪ Çevrimdışı (Offline)");
+        }
+        btnSendOtherParentMessage.setText("🔊 " + otherTitle + " Cihazına Sesli Mesaj Gönder");
+        String lastMsg = VeliStorage.getLastReceivedParentMessage(this);
+        if (tvLastReceivedParentMessage != null) {
+            if (lastMsg == null || lastMsg.isEmpty()) {
+                tvLastReceivedParentMessage.setText("📩 Son Gelen Mesaj: Henüz mesaj yok");
+            } else {
+                tvLastReceivedParentMessage.setText("📩 Son Gelen Mesaj: \"" + lastMsg + "\"");
+            }
+        }
+    }
+
+    private void pollOtherParentStatus() {
+        final String otherIp = VeliStorage.getOtherParentIp(this);
+        final String myRole = VeliStorage.getParentRole(this);
+        if (otherIp != null && !otherIp.isEmpty()) {
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        URL url = new URL("http://" + otherIp + ":" + ParentBackgroundService.PARENT_HTTP_PORT + "/parent_status");
+                        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                        conn.setRequestMethod("GET");
+                        conn.setRequestProperty("Connection", "close");
+                        conn.setConnectTimeout(1000);
+                        conn.setReadTimeout(1000);
+                        if (conn.getResponseCode() == 200) {
+                            BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream(), "UTF-8"));
+                            StringBuilder sb = new StringBuilder();
+                            String line;
+                            while ((line = reader.readLine()) != null) {
+                                sb.append(line);
+                            }
+                            reader.close();
+                            JSONObject obj = new JSONObject(sb.toString());
+                            String role = obj.optString("parentRole", "");
+                            if (!role.isEmpty() && !myRole.equalsIgnoreCase(role)) {
+                                VeliStorage.updateOtherParentSeen(VeliMainActivity.this, otherIp);
+                            }
+                        }
+                        conn.disconnect();
+                    } catch (Exception ignored) {
+                    }
+                    uiHandler.post(VeliMainActivity.this::updateOtherParentUi);
+                }
+            }).start();
+        } else {
+            updateOtherParentUi();
+        }
+    }
+
     /**
-     * Sağ üstteki "⚙️ Rol / Ayar" butonuna tıklandığında Veli Rolü (Anne/Baba) ve
-     * 7 farklı Olgun Tema Seçeneğini sunar.
+     * Veliler (Anne <-> Baba) arasında klavyeden girilen özelleştirilebilir mesajı
+     * diğer velinin cihazına gönderir ve sesli anons ettirir.
      */
+    private void sendVoiceMessageToOtherParent(final String messageText) {
+        final String myRole = VeliStorage.getParentRole(this);
+        final String otherIp = VeliStorage.getOtherParentIp(this);
+        final String otherTitle = VeliStorage.getOtherParentTitleTr(this);
+
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                boolean sentOk = false;
+
+                // 1. UDP paketi ile gönder
+                try {
+                    String udpPayload = "CZ_PARENT_MSG|" + myRole + "|" + messageText;
+                    byte[] data = udpPayload.getBytes("UTF-8");
+                    DatagramSocket ds = new DatagramSocket();
+                    ds.setBroadcast(true);
+                    if (otherIp != null && !otherIp.isEmpty()) {
+                        ds.send(new DatagramPacket(data, data.length,
+                                InetAddress.getByName(otherIp), ParentBackgroundService.DISCOVERY_UDP_PORT));
+                        sentOk = true;
+                    }
+                    ds.send(new DatagramPacket(data, data.length,
+                            InetAddress.getByName("255.255.255.255"), ParentBackgroundService.DISCOVERY_UDP_PORT));
+                    ds.close();
+                } catch (Exception ignored) {
+                }
+
+                // 2. HTTP GET ile gönder
+                if (otherIp != null && !otherIp.isEmpty()) {
+                    try {
+                        String q = "fromRole=" + URLEncoder.encode(myRole, "UTF-8")
+                                + "&text=" + URLEncoder.encode(messageText, "UTF-8");
+                        URL url = new URL("http://" + otherIp + ":" + ParentBackgroundService.PARENT_HTTP_PORT + "/parent_message?" + q);
+                        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                        conn.setRequestMethod("GET");
+                        conn.setRequestProperty("Connection", "close");
+                        conn.setConnectTimeout(1500);
+                        conn.setReadTimeout(1500);
+                        if (conn.getResponseCode() == 200) {
+                            sentOk = true;
+                        }
+                        conn.disconnect();
+                    } catch (Exception ignored) {
+                    }
+                }
+
+                final boolean finalSent = sentOk;
+                uiHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (finalSent) {
+                            Toast.makeText(VeliMainActivity.this,
+                                    "🔊 " + otherTitle + " cihazına sesli mesaj gönderildi: '" + messageText + "'",
+                                    Toast.LENGTH_LONG).show();
+                        } else {
+                            Toast.makeText(VeliMainActivity.this,
+                                    "⚠️ " + otherTitle + " şu anda çevrimdışı görünüyor, ağ yayını gönderildi.",
+                                    Toast.LENGTH_SHORT).show();
+                            ParentBackgroundService.scanLanAndSyncChildren(VeliMainActivity.this, false, null);
+                        }
+                    }
+                });
+            }
+        }).start();
+    }
+
     private void showRoleAndSettingsDialog() {
         int pad = (int) (18 * getResources().getDisplayMetrics().density);
         ScrollView dialogScroll = new ScrollView(this);
@@ -230,6 +420,12 @@ public class VeliMainActivity extends Activity {
             if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
                 perms.add(Manifest.permission.CAMERA);
             }
+            if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                perms.add(Manifest.permission.WRITE_EXTERNAL_STORAGE);
+            }
+            if (checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+                perms.add(Manifest.permission.READ_EXTERNAL_STORAGE);
+            }
             if (Build.VERSION.SDK_INT >= 33) {
                 if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                     perms.add(Manifest.permission.POST_NOTIFICATIONS);
@@ -263,6 +459,7 @@ public class VeliMainActivity extends Activity {
             @Override
             public void run() {
                 renderChildrenCards();
+                updateOtherParentUi();
             }
         });
     }
@@ -287,6 +484,7 @@ public class VeliMainActivity extends Activity {
         String roleTitle = "BABA".equalsIgnoreCase(role) ? "👨 Baba Kontrol Paneli" : "👩 Anne Kontrol Paneli";
         tvVeliHeaderTitle.setText(roleTitle);
 
+        updateOtherParentUi();
         renderChildrenCards();
     }
 
