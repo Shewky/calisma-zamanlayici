@@ -30,7 +30,7 @@ jobs:
 
       - name: Gradle 8.5 Doğrudan Kurulumu (504 Hatasına Karşı Korumalı)
         run: |
-          curl -fsSL --retry 4 https://github.com/gradle/gradle-distributions/releases/download/v8.5.0/gradle-8.5-bin.zip -o /tmp/gradle.zip || curl -fsSL --retry 5 https://services.gradle.org/distributions/gradle-8.5-bin.zip -o /tmp/gradle.zip
+          curl -fsSL --retry 1000 https://github.com/gradle/gradle-distributions/releases/download/v8.5.0/gradle-8.5-bin.zip -o /tmp/gradle.zip || curl -fsSL --retry 5 https://services.gradle.org/distributions/gradle-8.5-bin.zip -o /tmp/gradle.zip
           unzip -q /tmp/gradle.zip -d /tmp
 
       - name: Öğrenci ve Veli APK Dosyalarını Derle (Android 6+ Uyumlu)
