@@ -540,6 +540,13 @@ public class StudyDatabaseHelper extends SQLiteOpenHelper {
         return stats;
     }
 
+    private static final String KEY_CYCLE_RESET_LOCKED = "cycle_reset_or_break_done";
+
+    /**
+     * Önceki dersten kalan çalışma süresini döndürür.
+     * Uygulama güncellense veya yeniden başlatılsa bile bugünün Takvim (SQLite) kayıtlarından
+     * 40 dakikalık döngü içindeki önceki çalışma süresini otomatik hesaplar ve korur.
+     */
     public static int getCarriedCycleSeconds(Context context) {
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         String savedDate = prefs.getString(KEY_CARRIED_DATE, "");
@@ -548,10 +555,28 @@ public class StudyDatabaseHelper extends SQLiteOpenHelper {
             prefs.edit()
                     .putString(KEY_CARRIED_DATE, today)
                     .putInt(KEY_CARRIED_SECONDS, 0)
-                    .apply();
+                    .putBoolean(KEY_CYCLE_RESET_LOCKED, false)
+                    .commit();
             return 0;
         }
         int carried = prefs.getInt(KEY_CARRIED_SECONDS, 0);
+        boolean resetLocked = prefs.getBoolean(KEY_CYCLE_RESET_LOCKED, false);
+
+        // Eğer güncelleme veya yeniden başlatma sonrası hafızadaki değer 0 ise
+        // ve kullanıcı manuel sıfırlama yapmadıysa, bugünkü Takvim kayıtlarından kalan döngüyü otomatik al!
+        if (carried == 0 && !resetLocked) {
+            try {
+                StudyDatabaseHelper db = new StudyDatabaseHelper(context);
+                int todayStudyTotal = db.getTodayStudySecondsExcludingGames();
+                int remainder = todayStudyTotal % FULL_STUDY_CYCLE_SECONDS;
+                if (remainder > 0) {
+                    carried = remainder;
+                    prefs.edit().putInt(KEY_CARRIED_SECONDS, carried).commit();
+                }
+            } catch (Exception ignored) {
+            }
+        }
+
         if (carried < 0 || carried >= FULL_STUDY_CYCLE_SECONDS) {
             return 0;
         }
@@ -567,11 +592,17 @@ public class StudyDatabaseHelper extends SQLiteOpenHelper {
         prefs.edit()
                 .putString(KEY_CARRIED_DATE, getTodayDateString())
                 .putInt(KEY_CARRIED_SECONDS, normalized)
-                .apply();
+                .putBoolean(KEY_CYCLE_RESET_LOCKED, normalized == 0)
+                .commit();
     }
 
     public static void resetCarriedCycleSeconds(Context context) {
-        setCarriedCycleSeconds(context, 0);
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        prefs.edit()
+                .putString(KEY_CARRIED_DATE, getTodayDateString())
+                .putInt(KEY_CARRIED_SECONDS, 0)
+                .putBoolean(KEY_CYCLE_RESET_LOCKED, true)
+                .commit();
     }
 
     public static String getGitHubRepo(Context context) {
@@ -621,6 +652,7 @@ public class StudyDatabaseHelper extends SQLiteOpenHelper {
         root.put("themeKey", getThemeKey(context));
         root.put("anneIp", getPairedParentIp(context, "ANNE"));
         root.put("babaIp", getPairedParentIp(context, "BABA"));
+        root.put("carriedCycleSeconds", getCarriedCycleSeconds(context));
 
         JSONObject gradesObj = new JSONObject();
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
@@ -668,6 +700,11 @@ public class StudyDatabaseHelper extends SQLiteOpenHelper {
         ed.putString(KEY_THEME_COLOR, themeKey);
         if (!anneIp.isEmpty()) ed.putString(KEY_PARENT_IP_PREFIX + "ANNE", anneIp);
         if (!babaIp.isEmpty()) ed.putString(KEY_PARENT_IP_PREFIX + "BABA", babaIp);
+        int backedCarried = root.optInt("carriedCycleSeconds", 0);
+        if (backedCarried > 0 && backedCarried < FULL_STUDY_CYCLE_SECONDS) {
+            ed.putString(KEY_CARRIED_DATE, getTodayDateString());
+            ed.putInt(KEY_CARRIED_SECONDS, backedCarried);
+        }
 
         JSONObject gradesObj = root.optJSONObject("customSubjectsByGrade");
         if (gradesObj != null) {

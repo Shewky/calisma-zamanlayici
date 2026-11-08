@@ -2,10 +2,15 @@ package com.calismazamanlayici.app;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.DownloadManager;
 import android.app.ProgressDialog;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
@@ -19,9 +24,12 @@ import org.json.JSONObject;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
+import java.net.InetAddress;
+import java.net.Socket;
 import java.net.URL;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
@@ -30,17 +38,76 @@ import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSession;
+import javax.net.ssl.SSLSocket;
+import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 
 public class GitHubUpdater {
 
     /**
-     * Android 6.0 / 7.0 gibi eski kök sertifika deposuna sahip cihazlarda
-     * GitHub Releases CDN (objects.githubusercontent.com) üzerinden APK indirirken oluşan
-     * CertPathValidatorException hatasını önlemek için TLS bağlantısını yapılandırır.
+     * Android 6.0+ cihazlarda hem TLSv1.2 protokolünü zorunlu olarak etkinleştiren
+     * hem de GitHub Releases CDN (objects.githubusercontent.com) sertifikalarını kabul eden
+     * özel SSLSocketFactory.
      */
-    private static void configureLegacyTlsSupport() {
+    private static class LegacyTlsSocketFactory extends SSLSocketFactory {
+        private final SSLSocketFactory delegate;
+
+        public LegacyTlsSocketFactory(SSLSocketFactory delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public String[] getDefaultCipherSuites() {
+            return delegate.getDefaultCipherSuites();
+        }
+
+        @Override
+        public String[] getSupportedCipherSuites() {
+            return delegate.getSupportedCipherSuites();
+        }
+
+        private Socket enableTlsOnSocket(Socket socket) {
+            if (socket instanceof SSLSocket) {
+                try {
+                    SSLSocket ssl = (SSLSocket) socket;
+                    String[] supported = ssl.getSupportedProtocols();
+                    if (supported != null && supported.length > 0) {
+                        ssl.setEnabledProtocols(supported);
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+            return socket;
+        }
+
+        @Override
+        public Socket createSocket(Socket s, String host, int port, boolean autoClose) throws IOException {
+            return enableTlsOnSocket(delegate.createSocket(s, host, port, autoClose));
+        }
+
+        @Override
+        public Socket createSocket(String host, int port) throws IOException {
+            return enableTlsOnSocket(delegate.createSocket(host, port));
+        }
+
+        @Override
+        public Socket createSocket(String host, int port, InetAddress localHost, int localPort) throws IOException {
+            return enableTlsOnSocket(delegate.createSocket(host, port, localHost, localPort));
+        }
+
+        @Override
+        public Socket createSocket(InetAddress host, int port) throws IOException {
+            return enableTlsOnSocket(delegate.createSocket(host, port));
+        }
+
+        @Override
+        public Socket createSocket(InetAddress address, int port, InetAddress localAddress, int localPort) throws IOException {
+            return enableTlsOnSocket(delegate.createSocket(address, port, localAddress, localPort));
+        }
+    }
+
+    private static SSLSocketFactory createTrustAllSocketFactory() {
         try {
             TrustManager[] trustAllCerts = new TrustManager[]{
                     new X509TrustManager() {
@@ -58,29 +125,47 @@ public class GitHubUpdater {
                         }
                     }
             };
-            SSLContext sc = SSLContext.getInstance("TLS");
+            SSLContext sc;
+            try {
+                sc = SSLContext.getInstance("TLSv1.2");
+            } catch (Exception e) {
+                sc = SSLContext.getInstance("TLS");
+            }
             sc.init(null, trustAllCerts, new SecureRandom());
-            HttpsURLConnection.setDefaultSSLSocketFactory(sc.getSocketFactory());
+            SSLSocketFactory factory = new LegacyTlsSocketFactory(sc.getSocketFactory());
+            HttpsURLConnection.setDefaultSSLSocketFactory(factory);
             HttpsURLConnection.setDefaultHostnameVerifier(new HostnameVerifier() {
                 @Override
                 public boolean verify(String hostname, SSLSession session) {
                     return true;
                 }
             });
-        } catch (Exception ignored) {
+            return factory;
+        } catch (Exception e) {
+            return null;
         }
     }
 
     private static HttpURLConnection openConnectionWithRedirects(String urlStr) throws Exception {
-        configureLegacyTlsSupport();
+        SSLSocketFactory sslFactory = createTrustAllSocketFactory();
         String currentUrl = urlStr;
-        for (int redirectCount = 0; redirectCount < 6; redirectCount++) {
+        for (int redirectCount = 0; redirectCount < 8; redirectCount++) {
             URL url = new URL(currentUrl);
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            if (conn instanceof HttpsURLConnection && sslFactory != null) {
+                ((HttpsURLConnection) conn).setSSLSocketFactory(sslFactory);
+                ((HttpsURLConnection) conn).setHostnameVerifier(new HostnameVerifier() {
+                    @Override
+                    public boolean verify(String hostname, SSLSession session) {
+                        return true;
+                    }
+                });
+            }
             conn.setInstanceFollowRedirects(false);
             conn.setConnectTimeout(15000);
-            conn.setReadTimeout(15000);
-            conn.setRequestProperty("User-Agent", "CalismaZamanlayici-Android");
+            conn.setReadTimeout(20000);
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; CalismaZamanlayici)");
+            conn.setRequestProperty("Accept", "*/*");
 
             int status = conn.getResponseCode();
             if (status == HttpURLConnection.HTTP_MOVED_TEMP
@@ -91,14 +176,20 @@ public class GitHubUpdater {
                 String newUrl = conn.getHeaderField("Location");
                 conn.disconnect();
                 if (newUrl == null || newUrl.isEmpty()) {
-                    throw new Exception("Yönlendirme adresi bulunamadı.");
+                    throw new Exception("Yönlendirme adresi alınamadı.");
+                }
+                if (newUrl.startsWith("/")) {
+                    newUrl = url.getProtocol() + "://" + url.getHost() + newUrl;
                 }
                 currentUrl = newUrl;
-            } else {
+            } else if (status >= 200 && status < 300) {
                 return conn;
+            } else {
+                conn.disconnect();
+                throw new Exception("Sunucu yanıt kodu: HTTP " + status);
             }
         }
-        throw new Exception("Çok fazla yönlendirme (redirect).");
+        throw new Exception("Çok fazla yönlendirme.");
     }
 
     public static void checkUpdates(final Activity activity, final boolean showNoUpdateToast) {
@@ -115,9 +206,12 @@ public class GitHubUpdater {
             @Override
             public void run() {
                 try {
-                    configureLegacyTlsSupport();
+                    SSLSocketFactory sslFactory = createTrustAllSocketFactory();
                     String apiUrl = "https://api.github.com/repos/" + repo + "/releases/latest";
                     HttpURLConnection conn = (HttpURLConnection) new URL(apiUrl).openConnection();
+                    if (conn instanceof HttpsURLConnection && sslFactory != null) {
+                        ((HttpsURLConnection) conn).setSSLSocketFactory(sslFactory);
+                    }
                     conn.setRequestMethod("GET");
                     conn.setRequestProperty("Accept", "application/vnd.github.v3+json");
                     conn.setRequestProperty("User-Agent", "CalismaZamanlayici-Android");
@@ -227,7 +321,7 @@ public class GitHubUpdater {
                 .setTitle("🎉 Yeni Güncelleme Bulundu! (" + newTag + ")")
                 .setMessage("GitHub üzerinde yeni bir sürüm yayınlandı. Verileriniz silinmeden mevcut uygulamanın üzerine güncellenecektir.\n\nDeğişiklikler:\n" + notes)
                 .setPositiveButton("İndir ve Güncelle", (dialog, which) -> downloadAndInstallApk(activity, apkUrl))
-                .setNeutralButton("GitHub Repo Ayarı", (dialog, which) -> showConfigureRepoDialog(activity))
+                .setNeutralButton("Tarayıcıdan İndir", (dialog, which) -> openDownloadInBrowser(activity, apkUrl))
                 .setNegativeButton("Daha Sonra", null)
                 .show();
     }
@@ -245,7 +339,7 @@ public class GitHubUpdater {
 
         new AlertDialog.Builder(activity)
                 .setTitle("⚙️ GitHub Otomatik Güncelleme Deposu")
-                .setMessage("Projeyi yüklediğiniz GitHub adresini 'kullaniciadi/depo-adi' biçiminde girin:")
+                .setMessage("Projeyi yüklediğiniz GitHub adresini '\''kullaniciadi/depo-adi'\'' biçiminde girin:")
                 .setView(layout)
                 .setPositiveButton("Kaydet ve Kontrol Et", (dialog, which) -> {
                     String entered = etRepo.getText().toString().trim();
@@ -261,7 +355,7 @@ public class GitHubUpdater {
     private static void downloadAndInstallApk(final Activity activity, final String apkUrl) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             if (!activity.getPackageManager().canRequestPackageInstalls()) {
-                Toast.makeText(activity, "Güncellemeyi kurabilmek için 'Bilinmeyen Uygulamaları Yükle' iznini açın.", Toast.LENGTH_LONG).show();
+                Toast.makeText(activity, "Güncellemeyi kurabilmek için '\''Bilinmeyen Uygulamaları Yükle'\'' iznini açın.", Toast.LENGTH_LONG).show();
                 Intent permIntent = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
                         Uri.parse("package:" + activity.getPackageName()));
                 activity.startActivity(permIntent);
@@ -287,9 +381,13 @@ public class GitHubUpdater {
                     HttpURLConnection conn = openConnectionWithRedirects(apkUrl);
                     int fileLength = conn.getContentLength();
 
-                    File dir = activity.getExternalFilesDir(null);
+                    // Önce uygulama önbellek klasörünü (her zaman yazılabilir) dene
+                    File dir = activity.getCacheDir();
                     if (dir == null) {
-                        dir = activity.getCacheDir();
+                        dir = activity.getExternalFilesDir(null);
+                    }
+                    if (dir != null && !dir.exists()) {
+                        dir.mkdirs();
                     }
                     final File outputFile = new File(dir, "CalismaZamanlayici_update.apk");
                     if (outputFile.exists()) {
@@ -321,6 +419,9 @@ public class GitHubUpdater {
                     input.close();
                     conn.disconnect();
 
+                    // Dosyayı izinli okuma için çalıştırılabilir yap
+                    outputFile.setReadable(true, false);
+
                     mainHandler.post(new Runnable() {
                         @Override
                         public void run() {
@@ -329,16 +430,75 @@ public class GitHubUpdater {
                         }
                     });
                 } catch (final Exception e) {
+                    // Eğer uygulama içi akış eski cihazın TLS yığını nedeniyle başarısız olursa
+                    // otomatik olarak Android Sistem İndirme Yöneticisi veya Tarayıcı ile indirmeyi başlat!
                     mainHandler.post(new Runnable() {
                         @Override
                         public void run() {
                             progressDialog.dismiss();
-                            Toast.makeText(activity, "İndirme hatası: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                            fallbackDownloadViaSystemOrBrowser(activity, apkUrl);
                         }
                     });
                 }
             }
         }).start();
+    }
+
+    private static void fallbackDownloadViaSystemOrBrowser(final Activity activity, final String apkUrl) {
+        try {
+            DownloadManager dm = (DownloadManager) activity.getSystemService(Context.DOWNLOAD_SERVICE);
+            if (dm != null) {
+                DownloadManager.Request req = new DownloadManager.Request(Uri.parse(apkUrl));
+                req.setTitle(BuildConfig.APK_ASSET_NAME + " Güncellemesi");
+                req.setDescription("Yeni sürüm indiriliyor, tamamlandığında bildirimden kurabilirsiniz.");
+                req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+                req.setMimeType("application/vnd.android.package-archive");
+                File oldFile = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), BuildConfig.APK_ASSET_NAME);
+                if (oldFile.exists()) {
+                    oldFile.delete();
+                }
+                req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, BuildConfig.APK_ASSET_NAME);
+                final long downloadId = dm.enqueue(req);
+
+                Toast.makeText(activity, "📥 Güncelleme sistem indiricisiyle başlatıldı! İndirme bitince kurulum ekranı açılacaktır.", Toast.LENGTH_LONG).show();
+
+                BroadcastReceiver onComplete = new BroadcastReceiver() {
+                    @Override
+                    public void onReceive(Context ctxt, Intent intent) {
+                        long id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
+                        if (id == downloadId) {
+                            try {
+                                activity.unregisterReceiver(this);
+                            } catch (Exception ignored) {
+                            }
+                            File downloaded = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), BuildConfig.APK_ASSET_NAME);
+                            if (downloaded.exists()) {
+                                promptInstallApk(activity, downloaded);
+                            }
+                        }
+                    }
+                };
+                if (Build.VERSION.SDK_INT >= 33) {
+                    activity.registerReceiver(onComplete, new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), Context.RECEIVER_EXPORTED);
+                } else {
+                    activity.registerReceiver(onComplete, new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE));
+                }
+                return;
+            }
+        } catch (Exception ignored) {
+        }
+        openDownloadInBrowser(activity, apkUrl);
+    }
+
+    private static void openDownloadInBrowser(Activity activity, String apkUrl) {
+        try {
+            Toast.makeText(activity, "📥 Güncelleme paketi tarayıcı üzerinden indiriliyor...", Toast.LENGTH_LONG).show();
+            Intent browserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(apkUrl));
+            browserIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            activity.startActivity(browserIntent);
+        } catch (Exception e) {
+            Toast.makeText(activity, "İndirme başlatılamadı: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
     }
 
     private static void promptInstallApk(Activity activity, File apkFile) {

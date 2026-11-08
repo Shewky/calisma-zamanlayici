@@ -438,9 +438,11 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
             db.insertSession(currentMode, currentSubject, subjectElapsedSeconds);
         }
 
-        if (currentPhase == PHASE_STUDY) {
-            StudyDatabaseHelper.setCarriedCycleSeconds(this, carriedCycleSeconds);
-        } else {
+        if (currentPhase == PHASE_STUDY || currentPhase == PHASE_READY_TO_START) {
+            if (carriedCycleSeconds > 0 && carriedCycleSeconds < StudyDatabaseHelper.FULL_STUDY_CYCLE_SECONDS) {
+                StudyDatabaseHelper.setCarriedCycleSeconds(this, carriedCycleSeconds);
+            }
+        } else if (currentPhase == PHASE_BREAK || currentPhase == PHASE_POST_BREAK_PROMPT) {
             StudyDatabaseHelper.resetCarriedCycleSeconds(this);
         }
 

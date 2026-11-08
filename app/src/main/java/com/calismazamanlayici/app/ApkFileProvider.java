@@ -5,6 +5,7 @@ import android.content.ContentValues;
 import android.database.Cursor;
 import android.database.MatrixCursor;
 import android.net.Uri;
+import android.os.Environment;
 import android.os.ParcelFileDescriptor;
 import android.provider.OpenableColumns;
 
@@ -24,12 +25,19 @@ public class ApkFileProvider extends ContentProvider {
         return true;
     }
 
+    private File resolveApkFile(Uri uri) {
+        String name = uri.getLastPathSegment();
+        File f1 = new File(getContext().getCacheDir(), name);
+        if (f1.exists()) return f1;
+        File f2 = new File(getContext().getExternalFilesDir(null), name);
+        if (f2.exists()) return f2;
+        File f3 = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), name);
+        return f3;
+    }
+
     @Override
     public ParcelFileDescriptor openFile(Uri uri, String mode) throws FileNotFoundException {
-        File apkFile = new File(getContext().getExternalFilesDir(null), uri.getLastPathSegment());
-        if (!apkFile.exists()) {
-            apkFile = new File(getContext().getCacheDir(), uri.getLastPathSegment());
-        }
+        File apkFile = resolveApkFile(uri);
         if (!apkFile.exists()) {
             throw new FileNotFoundException("APK bulunamadi: " + apkFile.getAbsolutePath());
         }
@@ -43,10 +51,7 @@ public class ApkFileProvider extends ContentProvider {
 
     @Override
     public Cursor query(Uri uri, String[] projection, String selection, String[] selectionArgs, String sortOrder) {
-        File apkFile = new File(getContext().getExternalFilesDir(null), uri.getLastPathSegment());
-        if (!apkFile.exists()) {
-            apkFile = new File(getContext().getCacheDir(), uri.getLastPathSegment());
-        }
+        File apkFile = resolveApkFile(uri);
         String[] cols = projection != null ? projection : new String[]{OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE};
         MatrixCursor cursor = new MatrixCursor(cols, 1);
         Object[] row = new Object[cols.length];
