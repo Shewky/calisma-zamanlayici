@@ -66,7 +66,7 @@ public class VeliPlatformerJumpView extends View {
         float size;
     }
 
-    private static classSparkle {
+    private static class Sparkle {
         float x, y, vx, vy;
         int color;
         int life;
@@ -75,7 +75,7 @@ public class VeliPlatformerJumpView extends View {
     private final List<Obstacle> obstacles = new ArrayList<>();
     private final List<Collectible> collectibles = new ArrayList<>();
     private final List<Cloud> clouds = new ArrayList<>();
-    private final List<classSparkle> sparkles = new ArrayList<>();
+    private final List<Sparkle> sparkles = new ArrayList<>();
 
     private static final String[] STAGE_NAMES = new String[]{
             "Yeşil Vadi",
@@ -157,7 +157,7 @@ public class VeliPlatformerJumpView extends View {
 
     private void spawnSparkles(float cx, float cy, int color, int count) {
         for (int i = 0; i < count; i++) {
-            classSparkle s = new classSparkle();
+            Sparkle s = new Sparkle();
             s.x = cx;
             s.y = cy;
             double ang = random.nextDouble() * Math.PI * 2;
@@ -272,9 +272,9 @@ public class VeliPlatformerJumpView extends View {
         }
 
         // 5. Parçacık Efektleri
-        Iterator<classSparkle> spIt = sparkles.iterator();
+        Iterator<Sparkle> spIt = sparkles.iterator();
         while (spIt.hasNext()) {
-            classSparkle s = spIt.next();
+            Sparkle s = spIt.next();
             s.x += s.vx;
             s.y += s.vy;
             s.life--;

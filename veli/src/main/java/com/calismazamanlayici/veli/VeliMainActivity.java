@@ -141,7 +141,7 @@ public class VeliMainActivity extends Activity {
             speakIntent.setAction(ParentBackgroundService.ACTION_SPEAK);
             speakIntent.putExtra(ParentBackgroundService.EXTRA_SPEECH_TEXT, lastMsg);
             startService(speakIntent);
-            Toast.makeText(VeliMainActivity.this, "🔊 Son mesaj tekrar okunuyor:  + lastMsg + ", Toast.LENGTH_SHORT).show();
+            Toast.makeText(VeliMainActivity.this, "🔊 Son mesaj tekrar okunuyor: " + lastMsg, Toast.LENGTH_SHORT).show();
         });
         tvVeliVersionInfo = findViewById(R.id.tvVeliVersionInfo);
         Button btnChangeVeliRole = findViewById(R.id.btnChangeVeliRole);
