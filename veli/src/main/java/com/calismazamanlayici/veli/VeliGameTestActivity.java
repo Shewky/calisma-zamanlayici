@@ -253,12 +253,26 @@ public class VeliGameTestActivity extends Activity {
         if (layoutEntHeaderCard != null) {
             layoutEntHeaderCard.setBackground(VeliThemeHelper.createHeaderDrawable(this));
         }
-        btnJumpAction.setBackground(VeliVeliThemeHelper.createButtonDrawable(this, p.primary));
+        btnJumpAction.setBackground(VeliThemeHelper.createButtonDrawable(this, p.primary));
 
         tvEntHeaderTitle.setText("🛠️ Veli Oyun Test Merkezi (" + testGradeLevel + ". Sınıf)");
 
-        spinnerVeliTestGrade = findViewById(R.id.spinnerVeliTestGrade);
-        if (spinnerVeliTestGrade != null) {
+        if (layoutEntHeaderCard != null) {
+            int pad = (int) (8 * getResources().getDisplayMetrics().density);
+            LinearLayout gradeRow = new LinearLayout(this);
+            gradeRow.setOrientation(LinearLayout.HORIZONTAL);
+            gradeRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            gradeRow.setPadding(0, pad, 0, 0);
+
+            TextView tvGradeLbl = new TextView(this);
+            tvGradeLbl.setText("🎓 Test Sınıf Seviyesi: ");
+            tvGradeLbl.setTextColor(0xFFFFFFFF);
+            tvGradeLbl.setTextSize(14f);
+            tvGradeLbl.setTypeface(null, android.graphics.Typeface.BOLD);
+
+            spinnerVeliTestGrade = new Spinner(this);
+            spinnerVeliTestGrade.setBackgroundColor(0xFFEEF2FF);
+            spinnerVeliTestGrade.setPadding(pad, pad / 2, pad, pad / 2);
             String[] grades = new String[]{"1. Sınıf", "2. Sınıf", "3. Sınıf", "4. Sınıf", "5. Sınıf", "6. Sınıf", "7. Sınıf", "8. Sınıf"};
             ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, grades);
             adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
@@ -277,6 +291,10 @@ public class VeliGameTestActivity extends Activity {
                 @Override
                 public void onNothingSelected(AdapterView<?> parent) {}
             });
+
+            gradeRow.addView(tvGradeLbl);
+            gradeRow.addView(spinnerVeliTestGrade);
+            layoutEntHeaderCard.addView(gradeRow);
         }
 
         btnToggleGameMusic.setOnClickListener(v -> {
