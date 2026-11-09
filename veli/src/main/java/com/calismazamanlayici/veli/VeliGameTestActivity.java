@@ -58,7 +58,8 @@ public class VeliGameTestActivity extends Activity {
     private FrameLayout frameEffectOverlay;
     private StarBurstEffectView starEffectView;
 
-    private StudyDatabaseHelper dbHelper;
+    private int testGradeLevel = 5;
+    private Spinner spinnerVeliTestGrade;
     private final VeliGameMusicSynthesizer musicSynth = new VeliGameMusicSynthesizer();
     private final Handler timerHandler = new Handler(Looper.getMainLooper());
     private final Random random = new Random();
@@ -174,24 +175,10 @@ public class VeliGameTestActivity extends Activity {
         @Override
         public void run() {
             totalEntElapsedSeconds++;
-            StudyDatabaseHelper.setCurrentEntSpentSeconds(VeliGameTestActivity.this, totalEntElapsedSeconds);
-
             if (inActiveGame) {
                 activeGameSessionSeconds++;
             }
-
             updateTimerBannerUi();
-
-            if (totalEntElapsedSeconds >= StudyDatabaseHelper.ENTERTAINMENT_WARNING_SECONDS && !elevenMinWarningShown) {
-                elevenMinWarningShown = true;
-                showElevenMinuteWarningPopup();
-            }
-
-            if (totalEntElapsedSeconds >= StudyDatabaseHelper.ENTERTAINMENT_MAX_LIMIT_SECONDS) {
-                performAutoExitAndRelock();
-                return;
-            }
-
             timerHandler.postDelayed(this, 1000L);
         }
     };
@@ -201,14 +188,11 @@ public class VeliGameTestActivity extends Activity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_veli_game_test);
 
-        dbHelper = new StudyDatabaseHelper(this);
-        if (!dbHelper.isEntertainmentUnlocked(this)) {
-            Toast.makeText(this, "🔒 Erişim sağlamak için, bugün 40 dakikalık bir çalışma tamamla", Toast.LENGTH_LONG).show();
-            finish();
-            return;
+        totalEntElapsedSeconds = 0;
+        List<VeliStorage.PairedChild> paired = VeliStorage.getPairedChildren(this);
+        if (!paired.isEmpty() && paired.get(0).gradeLevel >= 1 && paired.get(0).gradeLevel <= 8) {
+            testGradeLevel = paired.get(0).gradeLevel;
         }
-
-        totalEntElapsedSeconds = StudyDatabaseHelper.getCurrentEntElapsedSafe(this);
 
         scrollRootEntertainment = findViewById(R.id.scrollRootEntertainment);
         layoutEntHeaderCard = findViewById(R.id.layoutEntHeaderCard);
@@ -264,13 +248,36 @@ public class VeliGameTestActivity extends Activity {
         });
         frameJumpGameCanvas.addView(jumpGameView);
 
-        ThemeHelper.Palette p = ThemeHelper.getPalette(this);
-        ThemeHelper.applyWindowAndSurface(this, scrollRootEntertainment);
-        ThemeHelper.styleHeader(this, layoutEntHeaderCard);
-        btnJumpAction.setBackground(ThemeHelper.createButtonDrawable(this, p.primary));
+        VeliThemeHelper.Palette p = VeliThemeHelper.getPalette(this);
+        VeliThemeHelper.applyWindowAndSurface(this, scrollRootEntertainment);
+        if (layoutEntHeaderCard != null) {
+            layoutEntHeaderCard.setBackground(VeliThemeHelper.createHeaderDrawable(this));
+        }
+        btnJumpAction.setBackground(VeliVeliThemeHelper.createButtonDrawable(this, p.primary));
 
-        int grade = StudyDatabaseHelper.getGradeLevel(this);
-        tvEntHeaderTitle.setText("🎮 Eğlence Dünyası (" + grade + ". Sınıf)");
+        tvEntHeaderTitle.setText("🛠️ Veli Oyun Test Merkezi (" + testGradeLevel + ". Sınıf)");
+
+        spinnerVeliTestGrade = findViewById(R.id.spinnerVeliTestGrade);
+        if (spinnerVeliTestGrade != null) {
+            String[] grades = new String[]{"1. Sınıf", "2. Sınıf", "3. Sınıf", "4. Sınıf", "5. Sınıf", "6. Sınıf", "7. Sınıf", "8. Sınıf"};
+            ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, grades);
+            adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+            spinnerVeliTestGrade.setAdapter(adapter);
+            spinnerVeliTestGrade.setSelection(testGradeLevel - 1);
+            spinnerVeliTestGrade.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+                @Override
+                public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                    testGradeLevel = position + 1;
+                    tvEntHeaderTitle.setText("🛠️ Veli Oyun Test Merkezi (" + testGradeLevel + ". Sınıf)");
+                    buildGameLobbyCards();
+                    if (inActiveGame && activeGameIndex < 8) {
+                        loadNextQuestion();
+                    }
+                }
+                @Override
+                public void onNothingSelected(AdapterView<?> parent) {}
+            });
+        }
 
         btnToggleGameMusic.setOnClickListener(v -> {
             boolean muted = musicSynth.toggleMute();
@@ -321,53 +328,19 @@ public class VeliGameTestActivity extends Activity {
         super.onPause();
     }
 
+    private static String formatClockSeconds(int totalSeconds) {
+        int mins = Math.max(0, totalSeconds) / 60;
+        int secs = Math.max(0, totalSeconds) % 60;
+        return String.format(java.util.Locale.getDefault(), "%02d:%02d", mins, secs);
+    }
+
     private void updateTimerBannerUi() {
-        int remainingToRelock = Math.max(0, StudyDatabaseHelper.ENTERTAINMENT_MAX_LIMIT_SECONDS - totalEntElapsedSeconds);
-        tvEntTimerStatus.setText("⏱️ Geçen Eğlence Süresi: "
-                + StudyDatabaseHelper.formatClock(totalEntElapsedSeconds)
-                + " • Kalan Hak: " + StudyDatabaseHelper.formatClock(remainingToRelock));
-    }
-
-    private void showElevenMinuteWarningPopup() {
-        speakViaService("Normal mola süresinden daha uzun zaman harcadın. 1 dakika sonra otomatik çıkış yapılacak");
-        if (!isFinishing()) {
-            new AlertDialog.Builder(this)
-                    .setTitle("⏰ Eğlence Süresi Uyarısı")
-                    .setMessage("Normal mola süresinden daha uzun zaman harcadın. 1 dakika sonra otomatik çıkış yapılacak")
-                    .setPositiveButton("Tamam", null)
-                    .show();
-        }
-    }
-
-    private void performAutoExitAndRelock() {
-        timerHandler.removeCallbacks(secondTickRunnable);
-        if (jumpGameView != null) jumpGameView.stopGame();
-        musicSynth.stopBackgroundMusic();
-        saveActiveGameSessionToCalendarIfNeeded();
-
-        dbHelper.relockEntertainmentAfterLimit(this);
-        speakViaService("Eğlence süresi tamamlandı. Tekrar açmak için kırk dakika çalışma yapmalısın.");
-        Toast.makeText(this,
-                "🔒 Eğlence süresi doldu ve yeniden kilitlendi! Açmak için 40 dakika daha çalışma yapmalısın.",
-                Toast.LENGTH_LONG).show();
-        finish();
-    }
-
-    private void speakViaService(String text) {
-        try {
-            Intent i = new Intent(this, TimerForegroundService.class);
-            i.setAction(TimerForegroundService.ACTION_SPEAK_CUSTOM);
-            i.putExtra(TimerForegroundService.EXTRA_CUSTOM_SPEECH, text);
-            startService(i);
-        } catch (Exception ignored) {
-        }
+        tvEntTimerStatus.setText("🛠️ Veli Test Modu Aktif (Süre / Kilit Sınırı Yok) • Süre: "
+                + formatClockSeconds(totalEntElapsedSeconds));
     }
 
     private void saveActiveGameSessionToCalendarIfNeeded() {
-        if (inActiveGame && activeGameSessionSeconds >= 3 && activeGameTitle != null && !activeGameTitle.isEmpty()) {
-            dbHelper.insertSession(StudyDatabaseHelper.MODE_GAME, activeGameTitle, activeGameSessionSeconds);
-            activeGameSessionSeconds = 0;
-        }
+        activeGameSessionSeconds = 0;
     }
 
     public static List<GameDefinition> buildAllGamesList(int grade, int customSubjectCount) {
@@ -405,8 +378,8 @@ public class VeliGameTestActivity extends Activity {
 
     private void buildGameLobbyCards() {
         layoutGameCardsList.removeAllViews();
-        int grade = StudyDatabaseHelper.getGradeLevel(this);
-        int subjCount = StudyDatabaseHelper.getSubjectsForCurrentGrade(this).size();
+        int grade = testGradeLevel;
+        int subjCount = 8;
         List<GameDefinition> games = buildAllGamesList(grade, subjCount);
         int pad = (int) (16 * getResources().getDisplayMetrics().density);
         int margin = (int) (12 * getResources().getDisplayMetrics().density);
@@ -436,7 +409,7 @@ public class VeliGameTestActivity extends Activity {
             tvSub.setPadding(0, pad / 3, 0, pad / 2);
 
             Button btnPlay = new Button(this);
-            btnPlay.setBackground(ThemeHelper.createButtonDrawable(this, g.accentColor));
+            btnPlay.setBackground(VeliThemeHelper.createButtonDrawable(this, g.accentColor));
             btnPlay.setText(g.isPlatformerJump ? "🏃‍♂️ Zıplama Macerasını Başlat" : "▶️ Maceraya Başla");
             btnPlay.setAllCaps(false);
             btnPlay.setTextColor(0xFFFFFFFF);
@@ -494,13 +467,13 @@ public class VeliGameTestActivity extends Activity {
     }
 
     private void loadNextQuestion() {
-        int grade = StudyDatabaseHelper.getGradeLevel(this);
+        int grade = testGradeLevel;
         final QuestionItem q = generateGradeScaledQuestion(activeGameIndex % 8, grade, random);
 
         tvGameQuestionPrompt.setText(q.prompt);
         layoutGameOptionButtons.removeAllViews();
 
-        ThemeHelper.Palette p = ThemeHelper.getPalette(this);
+        VeliThemeHelper.Palette p = VeliThemeHelper.getPalette(this);
         int[] optionColors = new int[]{p.primary, p.secondary, p.accent, p.primaryDark};
         int marginPx = (int) (10 * getResources().getDisplayMetrics().density);
         int heightPx = (int) (56 * getResources().getDisplayMetrics().density);
@@ -512,7 +485,7 @@ public class VeliGameTestActivity extends Activity {
                     LinearLayout.LayoutParams.MATCH_PARENT, heightPx);
             lp.setMargins(0, 0, 0, marginPx);
             btn.setLayoutParams(lp);
-            btn.setBackground(ThemeHelper.createButtonDrawable(this, optionColors[i % optionColors.length]));
+            btn.setBackground(VeliThemeHelper.createButtonDrawable(this, optionColors[i % optionColors.length]));
             btn.setText(chosen);
             btn.setAllCaps(false);
             btn.setTextColor(0xFFFFFFFF);
