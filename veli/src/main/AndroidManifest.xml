@@ -52,6 +52,11 @@
             android:screenOrientation="portrait" />
 
         <activity
+            android:name=".VeliGameTestActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
             android:name=".ChildDetailActivity"
             android:exported="false"
             android:screenOrientation="portrait" />

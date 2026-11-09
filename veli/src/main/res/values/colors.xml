@@ -6,4 +6,11 @@
     <color name="veli_bg">#F1F5F9</color>
     <color name="veli_text_dark">#0F172A</color>
     <color name="veli_text_muted">#475569</color>
+    <color name="primary_default">#1E88E5</color>
+    <color name="primary_dark_default">#1565C0</color>
+    <color name="accent_default">#00897B</color>
+    <color name="bg_surface">#F5F9FF</color>
+    <color name="card_white">#FFFFFF</color>
+    <color name="text_dark">#1F2937</color>
+    <color name="text_muted">#4B5563</color>
 </resources>

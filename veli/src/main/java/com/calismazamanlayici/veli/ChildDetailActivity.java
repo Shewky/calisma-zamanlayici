@@ -6,6 +6,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.widget.Button;
+import android.widget.CalendarView;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -23,12 +24,15 @@ import java.net.HttpURLConnection;
 import java.net.InetAddress;
 import java.net.URL;
 import java.net.URLEncoder;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 
 /**
  * Veli uygulamasında çocuğun adına tıklandığında açılan detaylı takip ekranı:
- * - Anne veya Baba rolünü dinamik ayırt ederek hazır övgüleri ("Annenden/Babandan övgü aldın tebrikler") gönderir.
- * - "Özelleştirilmiş Övgü Gönder" özelliği ile klavyeden girilen mesajı
- *   Anne ise "Annenden mesaj: ...", Baba ise "Babandan mesaj: ..." diyerek öğrenci cihazında sesli anons ettirir.
+ * - Öğrenci uygulamasındaki gibi gün gün tıklanabilir etkileşimli Takvim (CalendarView) içerir.
+ * - Aynı ağda alınan tüm takvim ve ödül verilerini cihaz hafızasına kaydeder; ağdan çıkılsa bile geçmiş görünür.
+ * - Oyunlar çalışma olarak sayılmaz; takvimde yalnızca Ödev, Test ve Kitap Okuma çalışma olarak gösterilir.
  */
 public class ChildDetailActivity extends Activity {
 
@@ -47,9 +51,17 @@ public class ChildDetailActivity extends Activity {
     private Button btnSendRolePraise;
     private Button btnSendAferinPraise;
     private Button btnSendCustomPraise;
+
+    private CalendarView calendarViewVeliChild;
+    private TextView tvVeliSelectedDateTitle;
+    private TextView tvVeliSelectedDateSummary;
+    private LinearLayout layoutDetailCalendarRecords;
+
     private TextView tvDetailWeeklySummary;
     private LinearLayout layoutDetailBadges;
-    private LinearLayout layoutDetailCalendarRecords;
+
+    private String selectedCalendarDate = "";
+    private JSONObject lastLoadedReport = null;
 
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private boolean polling = false;
@@ -59,7 +71,7 @@ public class ChildDetailActivity extends Activity {
         public void run() {
             if (!polling) return;
             fetchFullReportFromChild();
-            uiHandler.postDelayed(this, 2500L);
+            uiHandler.postDelayed(this, 3000L);
         }
     };
 
@@ -69,10 +81,15 @@ public class ChildDetailActivity extends Activity {
         setContentView(R.layout.activity_child_detail);
 
         if (getIntent() != null) {
-            childId = getIntent().getStringExtra("EXTRA_CHILD_ID");
-            childName = getIntent().getStringExtra("EXTRA_CHILD_NAME");
-            childIp = getIntent().getStringExtra("EXTRA_CHILD_IP");
+            String cid = getIntent().getStringExtra("EXTRA_CHILD_ID");
+            if (cid != null) childId = cid;
+            String cname = getIntent().getStringExtra("EXTRA_CHILD_NAME");
+            if (cname != null) childName = cname;
+            String cip = getIntent().getStringExtra("EXTRA_CHILD_IP");
+            if (cip != null) childIp = cip;
         }
+
+        selectedCalendarDate = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date());
 
         scrollRootChildDetail = findViewById(R.id.scrollRootChildDetail);
         layoutDetailHeaderCard = findViewById(R.id.layoutDetailHeaderCard);
@@ -85,9 +102,14 @@ public class ChildDetailActivity extends Activity {
         btnSendRolePraise = findViewById(R.id.btnSendRolePraise);
         btnSendAferinPraise = findViewById(R.id.btnSendAferinPraise);
         btnSendCustomPraise = findViewById(R.id.btnSendCustomPraise);
+
+        calendarViewVeliChild = findViewById(R.id.calendarViewVeliChild);
+        tvVeliSelectedDateTitle = findViewById(R.id.tvVeliSelectedDateTitle);
+        tvVeliSelectedDateSummary = findViewById(R.id.tvVeliSelectedDateSummary);
+        layoutDetailCalendarRecords = findViewById(R.id.layoutDetailCalendarRecords);
+
         tvDetailWeeklySummary = findViewById(R.id.tvDetailWeeklySummary);
         layoutDetailBadges = findViewById(R.id.layoutDetailBadges);
-        layoutDetailCalendarRecords = findViewById(R.id.layoutDetailCalendarRecords);
 
         Button btnDirectCallFromDetail = findViewById(R.id.btnDirectCallFromDetail);
         Button btnBack = findViewById(R.id.btnBackFromDetail);
@@ -106,6 +128,21 @@ public class ChildDetailActivity extends Activity {
         tvDetailChildName.setText("👤 " + childName + " • Canlı Takip ve Takvim");
 
         refreshRoleBasedPraiseLabels();
+
+        // Takvimden gün seçildiğinde o günün kayıtlarını göster
+        calendarViewVeliChild.setOnDateChangeListener((view, year, month, dayOfMonth) -> {
+            selectedCalendarDate = String.format(Locale.US, "%04d-%02d-%02d", year, month + 1, dayOfMonth);
+            renderSelectedCalendarDate();
+        });
+
+        // Ağdan çıkılmış (offline) olunsa bile hafızaya kaydedilmiş son raporu anında ekrana getir!
+        JSONObject cached = VeliStorage.getCachedChildReport(this, childId);
+        if (cached != null) {
+            lastLoadedReport = cached;
+            renderReportOnUi(cached, false);
+        } else {
+            renderSelectedCalendarDate();
+        }
 
         btnSendRolePraise.setOnClickListener(v -> {
             String role = VeliStorage.getParentRole(ChildDetailActivity.this);
@@ -213,7 +250,7 @@ public class ChildDetailActivity extends Activity {
                         if (isFinishing()) return;
                         if (!finalOnline) {
                             Toast.makeText(ChildDetailActivity.this, "⚠️ Şu anda offline görünüyor", Toast.LENGTH_SHORT).show();
-                            tvDetailLivePhase.setText("⚪ Şu anda offline görünüyor");
+                            tvDetailLivePhase.setText("⚪ Şu anda offline görünüyor (Kayıtlı geçmiş gösteriliyor)");
                         } else {
                             Intent callIntent = new Intent(ChildDetailActivity.this, VeliCallActivity.class);
                             callIntent.putExtra("EXTRA_CHILD_ID", childId);
@@ -241,7 +278,6 @@ public class ChildDetailActivity extends Activity {
             public void run() {
                 boolean sentOk = false;
 
-                // 1. Hızlı UDP paketi ile gönder
                 try {
                     String udpMsg = "CZ_PRAISE|" + parentRole + "|" + praiseSpeech;
                     byte[] udpBytes = udpMsg.getBytes("UTF-8");
@@ -258,7 +294,6 @@ public class ChildDetailActivity extends Activity {
                 } catch (Exception ignored) {
                 }
 
-                // 2. GET tabanlı HTTP isteği ile gönder
                 if (childIp != null && !childIp.isEmpty()) {
                     try {
                         String q = "role=" + URLEncoder.encode(parentRole, "UTF-8")
@@ -288,7 +323,7 @@ public class ChildDetailActivity extends Activity {
                                     Toast.LENGTH_LONG).show();
                         } else {
                             Toast.makeText(ChildDetailActivity.this,
-                                    "Öğrenci cihazı ağda aranıyor, lütfen tekrar deneyin.",
+                                    "⚠️ Şu anda offline görünüyor",
                                     Toast.LENGTH_SHORT).show();
                             ParentBackgroundService.scanLanAndSyncChildren(ChildDetailActivity.this, false, null);
                         }
@@ -331,24 +366,40 @@ public class ChildDetailActivity extends Activity {
                     reader.close();
                     conn.disconnect();
 
-                    final JSONObject report = new JSONObject(sb.toString());
+                    final String rawJson = sb.toString();
+                    final JSONObject report = new JSONObject(rawJson);
+
+                    // Aynı ağda veriyi alır almaz kalıcı hafızaya kaydet (Ağdan çıkınca da takvim görünsün!)
+                    VeliStorage.saveCachedChildReport(ChildDetailActivity.this, childId, rawJson);
+
                     uiHandler.post(new Runnable() {
                         @Override
                         public void run() {
-                            renderReportOnUi(report);
+                            lastLoadedReport = report;
+                            renderReportOnUi(report, true);
                         }
                     });
                 } catch (Exception e) {
+                    uiHandler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (lastLoadedReport != null) {
+                                tvDetailLivePhase.setText("⚪ Şu anda offline görünüyor (Kayıtlı geçmiş gösteriliyor)");
+                            }
+                        }
+                    });
                     ParentBackgroundService.scanLanAndSyncChildren(ChildDetailActivity.this, false, null);
                 }
             }
         }).start();
     }
 
-    private void renderReportOnUi(JSONObject report) {
+    private void renderReportOnUi(JSONObject report, boolean isLiveOnline) {
         String latestName = report.optString("userName", childName);
         int grade = report.optInt("gradeLevel", 4);
-        String phaseText = report.optString("phaseText", "🟢 Çevrimiçi");
+        String phaseText = isLiveOnline
+                ? report.optString("phaseText", "🟢 Çevrimiçi")
+                : "⚪ Şu anda offline görünüyor (Kayıtlı geçmiş gösteriliyor)";
         String remFmt = report.optString("remainingFormatted", "40:00");
         String elapsedFmt = report.optString("subjectElapsedFormatted", "0 sn");
         String todayFmt = report.optString("todayTotalFormatted", "0 dk");
@@ -358,11 +409,11 @@ public class ChildDetailActivity extends Activity {
         tvDetailLivePhase.setText(phaseText);
         tvDetailLiveTimers.setText("⏱️ Kalan Sayaç: " + remFmt
                 + " • Bu Derste Geçen: " + elapsedFmt
-                + "\n🎯 Bugün Tamamlanan: " + todayCount + " çalışma (" + todayFmt + ")");
+                + "\n🎯 Bugün Tamamlanan Çalışma (Ödev/Test/Kitap): " + todayCount + " (" + todayFmt + ")");
 
         JSONObject weekly = report.optJSONObject("weeklyStats");
         if (weekly != null) {
-            tvDetailWeeklySummary.setText("Son 7 Gün: "
+            tvDetailWeeklySummary.setText("Son 7 Gün Çalışma: "
                     + weekly.optInt("homeworkCount", 0) + " Ödev (" + weekly.optString("homeworkFormatted", "0 dk") + ") • "
                     + weekly.optInt("testCount", 0) + " Test (" + weekly.optString("testFormatted", "0 dk") + ") • "
                     + weekly.optInt("bookCount", 0) + " Kitap (" + weekly.optString("bookFormatted", "0 dk") + ")");
@@ -386,33 +437,80 @@ public class ChildDetailActivity extends Activity {
             }
         }
 
-        JSONArray calArr = report.optJSONArray("calendarRecords");
-        if (calArr != null) {
-            layoutDetailCalendarRecords.removeAllViews();
-            if (calArr.length() == 0) {
-                TextView empty = new TextView(this);
-                empty.setText("Henüz takvimde tamamlanmış çalışma kaydı bulunmuyor.");
-                empty.setTextColor(0xFF64748B);
-                empty.setTextSize(14f);
-                layoutDetailCalendarRecords.addView(empty);
-            } else {
-                for (int i = 0; i < calArr.length(); i++) {
-                    JSONObject item = calArr.optJSONObject(i);
-                    if (item == null) continue;
-                    String date = item.optString("date", "");
-                    String time = item.optString("time", "");
-                    String mode = item.optString("mode", "");
-                    String subj = item.optString("subject", "");
-                    String dur = item.optString("durationFormatted", "");
+        renderSelectedCalendarDate();
+    }
 
-                    TextView tv = new TextView(this);
-                    tv.setText("🗓️ " + date + " (" + time + ") • [" + mode + "] " + subj + " — " + dur);
-                    tv.setTextColor(0xFF0F172A);
-                    tv.setTextSize(14f);
-                    tv.setPadding(0, pad / 2, 0, pad / 2);
-                    layoutDetailCalendarRecords.addView(tv);
+    /**
+     * Takvimde (CalendarView) tıklanan güne ait Ödev, Test ve Kitap Okuma çalışmalarını
+     * (ve çalışma sayılmayan eğlence oyun kayıtlarını) listeler.
+     */
+    private void renderSelectedCalendarDate() {
+        tvVeliSelectedDateTitle.setText("📌 Seçilen Gün: " + selectedCalendarDate);
+        layoutDetailCalendarRecords.removeAllViews();
+        int pad = (int) (8 * getResources().getDisplayMetrics().density);
+
+        if (lastLoadedReport == null || !lastLoadedReport.has("calendarRecords")) {
+            tvVeliSelectedDateSummary.setText("Henüz senkronize edilmiş takvim verisi yok.");
+            TextView empty = new TextView(this);
+            empty.setText("Öğrenci cihazıyla aynı Wi-Fi ağına bağlandığınızda tüm takvim geçmişi otomatik olarak kaydedilecektir.");
+            empty.setTextColor(0xFF64748B);
+            empty.setTextSize(14f);
+            layoutDetailCalendarRecords.addView(empty);
+            return;
+        }
+
+        JSONArray calArr = lastLoadedReport.optJSONArray("calendarRecords");
+        int matchCount = 0;
+        int studyCount = 0;
+        int gameCount = 0;
+
+        if (calArr != null) {
+            for (int i = 0; i < calArr.length(); i++) {
+                JSONObject item = calArr.optJSONObject(i);
+                if (item == null) continue;
+                String date = item.optString("date", "");
+                if (!selectedCalendarDate.equals(date)) continue;
+
+                matchCount++;
+                String time = item.optString("time", "");
+                String mode = item.optString("mode", "");
+                String subj = item.optString("subject", "");
+                String dur = item.optString("durationFormatted", "");
+
+                String icon;
+                if ("Oyun".equalsIgnoreCase(mode)) {
+                    gameCount++;
+                    icon = "🎮 [Eğlence / Oyun - Çalışma Dışı] ";
+                } else {
+                    studyCount++;
+                    if ("Test Çözümü".equalsIgnoreCase(mode)) {
+                        icon = "📝 [Test Çözümü] ";
+                    } else if ("Kitap Okuma".equalsIgnoreCase(mode)) {
+                        icon = "📖 [Kitap Okuma] ";
+                    } else {
+                        icon = "📚 [Ödev] ";
+                    }
                 }
+
+                TextView tv = new TextView(this);
+                tv.setText(icon + subj + " — " + dur + " (Saat: " + time + ")");
+                tv.setTextColor("Oyun".equalsIgnoreCase(mode) ? 0xFF64748B : 0xFF0F172A);
+                tv.setTextSize(14f);
+                tv.setPadding(0, pad / 2, 0, pad / 2);
+                layoutDetailCalendarRecords.addView(tv);
             }
+        }
+
+        tvVeliSelectedDateSummary.setText("🎯 Bu Günkü Çalışma Sayısı (Ödev/Test/Kitap): " + studyCount
+                + (gameCount > 0 ? "  •  🎮 Oyun (Çalışma Dışı): " + gameCount : ""));
+
+        if (matchCount == 0) {
+            TextView empty = new TextView(this);
+            empty.setText("Seçilen tarihte (" + selectedCalendarDate + ") kaydedilmiş bir çalışma bulunmuyor.");
+            empty.setTextColor(0xFF64748B);
+            empty.setTextSize(14f);
+            empty.setPadding(0, pad, 0, pad);
+            layoutDetailCalendarRecords.addView(empty);
         }
     }
 }

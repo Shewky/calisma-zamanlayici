@@ -477,7 +477,7 @@ public class LanSyncServer {
         obj.put("subjectElapsedFormatted", StudyDatabaseHelper.formatDurationTr(service.getSubjectElapsedSeconds()));
         obj.put("todayTotalSeconds", db.getTotalSecondsForDate(today));
         obj.put("todayTotalFormatted", StudyDatabaseHelper.formatDurationTr(db.getTotalSecondsForDate(today)));
-        obj.put("todaySessionCount", db.getSessionsForDate(today).size());
+        obj.put("todaySessionCount", db.getStudySessionCountForDate(today));
         return obj;
     }
 
@@ -505,7 +505,7 @@ public class LanSyncServer {
         badges.put(makeBadge("👑 Haftanın Şampiyon Öğrencisi", stats.distinctSubjectsCount >= 4 || stats.getTotalSeconds() >= 120 * 60));
         obj.put("badges", badges);
 
-        List<StudyDatabaseHelper.SessionRecord> recent = db.getRecentSessions(40);
+        List<StudyDatabaseHelper.SessionRecord> recent = db.getRecentSessions(500);
         JSONArray calArr = new JSONArray();
         for (StudyDatabaseHelper.SessionRecord r : recent) {
             JSONObject item = new JSONObject();

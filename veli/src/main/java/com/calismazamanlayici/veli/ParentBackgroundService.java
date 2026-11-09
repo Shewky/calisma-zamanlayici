@@ -760,6 +760,7 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
                                 context, childId, userName, grade, ip);
                         if (existed) {
                             registerParentWithChild(context, ip);
+                            fetchAndCacheChildFullReport(context, childId, ip);
                         }
                     }
                 }
@@ -767,6 +768,34 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
             conn.disconnect();
         } catch (Exception ignored) {
         }
+    }
+
+    public static void fetchAndCacheChildFullReport(final Context context, final String childId, final String childIp) {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    URL url = new URL("http://" + childIp + ":" + STUDENT_HTTP_PORT + "/full_report");
+                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                    conn.setRequestMethod("GET");
+                    conn.setRequestProperty("Connection", "close");
+                    conn.setConnectTimeout(1500);
+                    conn.setReadTimeout(1500);
+                    if (conn.getResponseCode() == 200) {
+                        BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream(), "UTF-8"));
+                        StringBuilder sb = new StringBuilder();
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                            sb.append(line);
+                        }
+                        reader.close();
+                        VeliStorage.saveCachedChildReport(context, childId, sb.toString());
+                    }
+                    conn.disconnect();
+                } catch (Exception ignored) {
+                }
+            }
+        }).start();
     }
 
     public static void registerParentWithChild(final Context context, final String childIp) {

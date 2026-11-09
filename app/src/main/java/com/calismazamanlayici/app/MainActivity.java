@@ -525,13 +525,13 @@ public class MainActivity extends Activity {
 
         StudyDatabaseHelper db = new StudyDatabaseHelper(this);
         int todaySecs = db.getTotalSecondsForDate(StudyDatabaseHelper.getTodayDateString());
-        int todayCount = db.getSessionsForDate(StudyDatabaseHelper.getTodayDateString()).size();
+        int todayCount = db.getStudySessionCountForDate(StudyDatabaseHelper.getTodayDateString());
 
         if (todayCount == 0) {
             tvTodaySummaryBanner.setText("🎯 Bugün henüz çalışma kaydı yok. Hadi başlayalım " + userName + "!");
         } else {
             tvTodaySummaryBanner.setText("🌟 Harikasın " + userName + "! Bugün " + todayCount
-                    + " etkinlik tamamladın (" + StudyDatabaseHelper.formatDurationTr(todaySecs) + ")");
+                    + " çalışma tamamladın (" + StudyDatabaseHelper.formatDurationTr(todaySecs) + ")");
         }
 
         // Eğlence Butonu Kilit Durumu Kontrolü (40 dakika çalışma şartı)

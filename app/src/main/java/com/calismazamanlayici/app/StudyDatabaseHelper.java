@@ -401,6 +401,20 @@ public class StudyDatabaseHelper extends SQLiteOpenHelper {
         return list;
     }
 
+    /**
+     * Sadece gerçek çalışmaları (Ödev, Test Çözümü, Kitap Okuma) sayar; oynanan oyunları çalışma saymaz!
+     */
+    public int getStudySessionCountForDate(String dateString) {
+        List<SessionRecord> records = getSessionsForDate(dateString);
+        int count = 0;
+        for (SessionRecord r : records) {
+            if (!MODE_GAME.equals(r.mode)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
     public int getTotalSecondsForDate(String dateString) {
         List<SessionRecord> records = getSessionsForDate(dateString);
         int sum = 0;

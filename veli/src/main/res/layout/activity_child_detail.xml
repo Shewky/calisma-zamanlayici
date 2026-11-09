@@ -48,7 +48,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="Kalan Süre: --:-- • Bugün Toplam: 0 dk"
+                android:text="Kalan Süre: --:-- • Bugün Toplam Çalışma: 0 dk"
                 android:textColor="#F8FAFC"
                 android:textSize="14sp" />
         </LinearLayout>
@@ -95,7 +95,6 @@
                 android:textSize="14sp"
                 android:textStyle="bold" />
 
-            <!-- YENİ: Özelleştirilmiş Övgü / Mesaj Gönderme Alanı -->
             <TextView
                 android:id="@+id/tvCustomPraiseLabel"
                 android:layout_width="match_parent"
@@ -142,6 +141,65 @@
                 android:textStyle="bold" />
         </LinearLayout>
 
+        <!-- YENİ: Öğrenci Uygulamasındaki Gibi Gün Gün Tıklanabilir Çalışma Takvimi (Çevrimdışı Hafızalı) -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_veli_card"
+            android:orientation="vertical"
+            android:padding="14dp"
+            android:layout_marginBottom="14dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="📅 Gün Gün Çalışma Takvimi (Bir güne tıklayın)"
+                android:textColor="@color/veli_text_dark"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="Veriler cihazınıza kaydedilir; ağdan çıksanız bile geçmişi görüntüleyebilirsiniz."
+                android:textColor="@color/veli_text_muted"
+                android:textSize="12sp" />
+
+            <CalendarView
+                android:id="@+id/calendarViewVeliChild"
+                android:layout_width="match_parent"
+                android:layout_height="305dp"
+                android:layout_marginTop="6dp" />
+
+            <TextView
+                android:id="@+id/tvVeliSelectedDateTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="📌 Seçilen Gün: Bugün"
+                android:textColor="@color/veli_text_dark"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvVeliSelectedDateSummary"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Çalışmalar (Ödev, Test, Kitap): Yükleniyor..."
+                android:textColor="@color/veli_text_muted"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:id="@+id/layoutDetailCalendarRecords"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="vertical" />
+        </LinearLayout>
+
         <!-- Haftalık Başarılar ve Rozetler Kartı -->
         <LinearLayout
             android:layout_width="match_parent"
@@ -171,31 +229,6 @@
 
             <LinearLayout
                 android:id="@+id/layoutDetailBadges"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:orientation="vertical" />
-        </LinearLayout>
-
-        <!-- Takvim ve Çalışma Geçmişi Kartı -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="@drawable/bg_veli_card"
-            android:orientation="vertical"
-            android:padding="16dp"
-            android:layout_marginBottom="14dp">
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="📅 Çalışma Takvimi Kayıtları (Ödev, Test, Kitap)"
-                android:textColor="@color/veli_text_dark"
-                android:textSize="17sp"
-                android:textStyle="bold" />
-
-            <LinearLayout
-                android:id="@+id/layoutDetailCalendarRecords"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"

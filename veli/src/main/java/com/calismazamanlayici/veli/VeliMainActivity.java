@@ -59,6 +59,8 @@ public class VeliMainActivity extends Activity {
 
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private boolean autoRefreshActive = false;
+    private int secretTapCount = 0;
+    private long lastSecretTapTimeMs = 0L;
     private static volatile boolean foregroundVisible = false;
     private static VeliMainActivity currentInstance = null;
 
@@ -100,6 +102,29 @@ public class VeliMainActivity extends Activity {
         Button btnSaveVeliRole = findViewById(R.id.btnSaveVeliRole);
 
         tvVeliHeaderTitle = findViewById(R.id.tvVeliHeaderTitle);
+        View.OnClickListener secretFiveTapListener = new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                long now = System.currentTimeMillis();
+                if (now - lastSecretTapTimeMs > 2500L) {
+                    secretTapCount = 1;
+                } else {
+                    secretTapCount++;
+                }
+                lastSecretTapTimeMs = now;
+                if (secretTapCount >= 5) {
+                    secretTapCount = 0;
+                    Toast.makeText(VeliMainActivity.this, "🎮 Gizli Oyun Test Modu Açıldı! Tüm oyunları test edebilirsiniz.", Toast.LENGTH_SHORT).show();
+                    startActivity(new Intent(VeliMainActivity.this, VeliGameTestActivity.class));
+                }
+            }
+        };
+        if (tvVeliHeaderTitle != null) {
+            tvVeliHeaderTitle.setOnClickListener(secretFiveTapListener);
+        }
+        if (layoutVeliHeaderCard != null) {
+            layoutVeliHeaderCard.setOnClickListener(secretFiveTapListener);
+        }
         tvOtherParentStatusTitle = findViewById(R.id.tvOtherParentStatusTitle);
         etOtherParentMessage = findViewById(R.id.etOtherParentMessage);
         btnSendOtherParentMessage = findViewById(R.id.btnSendOtherParentMessage);
@@ -691,6 +716,7 @@ public class VeliMainActivity extends Activity {
 
                             VeliStorage.updateExistingChildNetworkInfo(
                                     VeliMainActivity.this, child.childId, latestName, latestGrade, child.ipAddress);
+                            ParentBackgroundService.fetchAndCacheChildFullReport(VeliMainActivity.this, child.childId, child.ipAddress);
 
                             uiHandler.post(new Runnable() {
                                 @Override

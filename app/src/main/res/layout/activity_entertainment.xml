@@ -58,7 +58,7 @@
                 android:layout_marginTop="8dp"
                 android:background="#28FFFFFF"
                 android:padding="8dp"
-                android:text="⏱️ Eğlence Süresi: 00:00 / 12:00 (Oynanan oyunlar takvime kaydedilir)"
+                android:text="⏱️ Eğlence Süresi: 00:00 / 12:00 (Oyunlar çalışma süresine sayılmaz)"
                 android:textColor="#FFFFFF"
                 android:textSize="13sp"
                 android:textStyle="bold" />
@@ -76,7 +76,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="10dp"
-                android:text="🌟 Sınıf seviyene özel hazırlanan macera oyunlarından birini seç ve başla!"
+                android:text="🌟 İlerlemeli zıplama macerasını veya sınıfına özel oyunlardan birini seç!"
                 android:textColor="@color/text_dark"
                 android:textSize="15sp"
                 android:textStyle="bold" />
@@ -100,7 +100,62 @@
                 android:textStyle="bold" />
         </LinearLayout>
 
-        <!-- AKTİF OYUN SAHNESİ GÖRÜNÜMÜ -->
+        <!-- YENİ: İLERLEMELİ ZIPLAMALI OYUN SAHNESİ (PLATFORMER JUMP ARENA) -->
+        <LinearLayout
+            android:id="@+id/layoutPlatformerJumpArena"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_white_card"
+                android:orientation="vertical"
+                android:padding="12dp"
+                android:layout_marginBottom="12dp">
+
+                <TextView
+                    android:id="@+id/tvJumpGameStatus"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="🏃‍♂️ Süper Yıldız Zıplama Macerası • Aşama 1"
+                    android:textColor="@color/text_dark"
+                    android:textSize="17sp"
+                    android:textStyle="bold"
+                    android:layout_marginBottom="8dp" />
+
+                <FrameLayout
+                    android:id="@+id/frameJumpGameCanvas"
+                    android:layout_width="match_parent"
+                    android:layout_height="280dp" />
+
+                <Button
+                    android:id="@+id/btnJumpAction"
+                    android:layout_width="match_parent"
+                    android:layout_height="62dp"
+                    android:layout_marginTop="10dp"
+                    android:text="⬆️ Zıpla! (Havada Çift Zıplama)"
+                    android:textAllCaps="false"
+                    android:textColor="#FFFFFF"
+                    android:textSize="19sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/btnBackFromJumpGame"
+                android:layout_width="match_parent"
+                android:layout_height="50dp"
+                android:background="@drawable/bg_white_card"
+                android:text="🔄 Oyun Seçim Listesine Dön"
+                android:textAllCaps="false"
+                android:textColor="@color/text_dark"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <!-- BİLGİ & MACERA OYUN SAHNESİ GÖRÜNÜMÜ -->
         <LinearLayout
             android:id="@+id/layoutActiveGameArena"
             android:layout_width="match_parent"
@@ -108,7 +163,6 @@
             android:orientation="vertical"
             android:visibility="gone">
 
-            <!-- Oyun Başlığı, Puan, Seri (Combo) ve Can Göstergesi -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -136,14 +190,12 @@
                     android:textSize="15sp"
                     android:textStyle="bold" />
 
-                <!-- Görsel Efekt / Yıldız Patlaması Gösterim Alanı -->
                 <FrameLayout
                     android:id="@+id/frameEffectOverlay"
                     android:layout_width="match_parent"
                     android:layout_height="76dp"
                     android:layout_marginTop="8dp" />
 
-                <!-- Soru / Görev Kutusu -->
                 <TextView
                     android:id="@+id/tvGameQuestionPrompt"
                     android:layout_width="match_parent"
@@ -167,7 +219,6 @@
                     android:textStyle="bold" />
             </LinearLayout>
 
-            <!-- Etkileşimli Seçenek Butonları -->
             <LinearLayout
                 android:id="@+id/layoutGameOptionButtons"
                 android:layout_width="match_parent"
@@ -180,7 +231,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="50dp"
                 android:background="@drawable/bg_white_card"
-                android:text="🔄 Oyun Seçim Listesine Dön (Süreyi Kaydet)"
+                android:text="🔄 Oyun Seçim Listesine Dön"
                 android:textAllCaps="false"
                 android:textColor="@color/text_dark"
                 android:textSize="15sp"

@@ -23,6 +23,30 @@ public class VeliStorage {
     private static final String KEY_OTHER_PARENT_IP = "other_parent_ip";
     private static final String KEY_OTHER_PARENT_LAST_SEEN = "other_parent_last_seen_ms";
     private static final String KEY_LAST_PARENT_MSG = "last_received_parent_message";
+    private static final String KEY_CACHED_REPORT_PREFIX = "cached_child_full_report_";
+
+    /**
+     * Aynı ağda çocuğun verileri alındığında tüm takvim, haftalık istatistik ve ödül geçmişini
+     * Veli telefonunun kalıcı hafızasına kaydeder; böylece ağdan çıkılsa (offline olunsa) bile
+     * Veli takvimdeki tüm geçmişi gün gün görebilir!
+     */
+    public static synchronized void saveCachedChildReport(Context context, String childId, String reportJsonStr) {
+        if (childId == null || childId.isEmpty() || reportJsonStr == null || reportJsonStr.isEmpty()) return;
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        prefs.edit().putString(KEY_CACHED_REPORT_PREFIX + childId.trim(), reportJsonStr).commit();
+    }
+
+    public static JSONObject getCachedChildReport(Context context, String childId) {
+        if (childId == null || childId.isEmpty()) return null;
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        String raw = prefs.getString(KEY_CACHED_REPORT_PREFIX + childId.trim(), null);
+        if (raw == null || raw.isEmpty()) return null;
+        try {
+            return new JSONObject(raw);
+        } catch (Exception e) {
+            return null;
+        }
+    }
 
     public static void saveLastReceivedParentMessage(Context context, String msg) {
         if (msg == null) return;
