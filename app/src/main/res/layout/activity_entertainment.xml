@@ -118,6 +118,8 @@
 
                 <TextView
                     android:id="@+id/tvJumpGameStatus"
+                    android:singleLine="true"
+                    android:ellipsize="end"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="🏃‍♂️ Süper Yıldız Zıplama Macerası • Aşama 1"

@@ -5,9 +5,10 @@ import android.media.AudioManager;
 import android.media.AudioTrack;
 
 /**
- * Her oyunun atmosferine özel farklı melodi, farklı tempo (BPM) ve farklı enstrüman tınısı
- * (8-bit Kare Dalga, Arp Tınısı, Flüt Vibrato, Marimba, Yarış Bass-Synth, Platformer Koşu)
- * üreten çok kanallı gerçek zamanlı müzik sentezleyici.
+ * Rahatlatıcı, uzun döngülü (64 adımlı / ~30-38 saniye), polifonik (akor + yumuşak melodi + eko/reverb)
+ * akustik oyun müziği sentezleyicisi.
+ * - Kulak tırmalayan kare dalgalar ve tiz sesler tamamen kaldırılmıştır.
+ * - Akustik Piyano, Kalimba (Müzik Kutusu), Yumuşak Arp, Sıcak Rhodes ve Huzurlu Pad tınıları kullanılır.
  */
 public class VeliGameMusicSynthesizer {
 
@@ -18,39 +19,100 @@ public class VeliGameMusicSynthesizer {
     private Thread musicThread;
     private AudioTrack bgTrack;
 
-    // 9 farklı oyun için 16 notalık özgün melodiler (Hz)
+    // Rahatlatıcı alt-orta oktav notaları (Hz):
+    // C3=131, D3=147, E3=165, F3=175, G3=196, A3=220, B3=247
+    // C4=262, D4=294, E4=330, F4=349, G4=392, A4=440, B4=494, C5=523, D5=587, E5=659
+    // Her oyun için 64 adımlı (4 bölümlü A-B-C-D) uzun, dinlendirici melodiler:
     private static final int[][] MELODIES = new int[][]{
-            // 0: Galaksi Sayı Avcısı (Hızlı Uzay Synth Arpej)
-            {523, 659, 784, 1046, 987, 784, 659, 523, 587, 698, 880, 1175, 1046, 880, 698, 587},
-            // 1: Gizemli Kelime Kalesi (Ortaçağ Kalesi Arp Valsi)
-            {440, 523, 659, 880, 784, 659, 523, 440, 392, 494, 587, 784, 659, 523, 494, 440},
-            // 2: Çılgın Laboratuvar Keşfi (Elektronik Bilim Laboratuvarı Ritmi)
-            {587, 0, 698, 784, 880, 0, 784, 698, 587, 698, 880, 1046, 880, 784, 698, 587},
-            // 3: Zaman Gezgini Hazine Avı (Destansı Keşif Marşı)
-            {392, 392, 523, 659, 784, 659, 523, 587, 659, 659, 784, 880, 784, 659, 587, 523},
-            // 4: Sihirli Köprü Parolası (Neşeli Marimba Pop)
-            {523, 659, 587, 784, 659, 880, 784, 1046, 880, 784, 659, 587, 523, 659, 587, 523},
-            // 5: İyilik Bahçesi Yıldızları (Huzurlu Doğa Flütü)
-            {523, 587, 659, 784, 659, 587, 523, 440, 523, 587, 659, 880, 784, 659, 587, 523},
-            // 6: Süper Kaptan Güvenli Rota (Yüksek Tempolu Yarış Heyecanı)
-            {659, 659, 784, 880, 987, 880, 784, 659, 784, 784, 880, 987, 1046, 987, 880, 784},
-            // 7: Barış Adası Kahramanları (Tropikal Ada Kalipso)
-            {523, 784, 659, 523, 587, 880, 784, 587, 659, 987, 880, 659, 784, 659, 587, 523},
-            // 8: Süper Yıldız Zıplama Macerası (İlerlemeli Zıplamalı Klasik Platformer Koşu Müziği!)
-            {659, 659, 0, 659, 0, 523, 659, 0, 784, 0, 392, 0, 523, 392, 330, 440}
+            // 0: Galaksi Sayı Avcısı (Uzay Ambient Piyano & Kalimba - Cmaj7 / Am7 / Fmaj7 / G6)
+            {
+                262, 330, 392, 494, 392, 330, 294, 0,   220, 262, 330, 440, 392, 330, 262, 0,
+                175, 220, 262, 349, 330, 262, 220, 196, 196, 247, 294, 392, 330, 294, 262, 0,
+                330, 392, 523, 494, 440, 392, 330, 294, 262, 330, 440, 392, 349, 330, 294, 0,
+                175, 262, 330, 392, 349, 330, 294, 262, 196, 247, 294, 330, 294, 247, 262, 0
+            },
+            // 1: Gizemli Kelime Kalesi (Huzurlu Akustik Arp Valsi - Am / F / C / G)
+            {
+                220, 262, 330, 440, 330, 262, 220, 0,   175, 220, 262, 349, 262, 220, 175, 0,
+                262, 330, 392, 523, 392, 330, 262, 0,   196, 247, 294, 392, 294, 247, 196, 0,
+                440, 392, 330, 262, 294, 330, 262, 220, 349, 330, 262, 220, 247, 294, 247, 196,
+                220, 262, 330, 392, 349, 330, 294, 262, 247, 220, 196, 220, 262, 247, 220, 0
+            },
+            // 2: Çılgın Laboratuvar Keşfi (Sıcak Lo-Fi Rhodes Piyano - Dm7 / G7 / Cmaj7 / Am7)
+            {
+                294, 349, 440, 523, 440, 349, 294, 0,   196, 247, 294, 349, 330, 294, 247, 0,
+                262, 330, 392, 494, 440, 392, 330, 0,   220, 262, 330, 392, 349, 330, 262, 0,
+                349, 440, 523, 494, 440, 392, 349, 330, 294, 349, 440, 392, 349, 330, 294, 262,
+                220, 262, 330, 440, 392, 349, 330, 294, 262, 294, 330, 392, 330, 294, 262, 0
+            },
+            // 3: Zaman Gezgini Hazine Avı (Yumuşak Akustik Gitar & Flüt - G / Em / C / D)
+            {
+                196, 247, 294, 392, 330, 294, 247, 0,   165, 196, 247, 330, 294, 247, 196, 0,
+                262, 330, 392, 440, 392, 330, 262, 0,   294, 330, 392, 440, 392, 330, 294, 0,
+                392, 440, 494, 392, 330, 294, 247, 196, 262, 294, 330, 392, 330, 294, 262, 220,
+                196, 247, 294, 392, 440, 392, 330, 294, 262, 294, 330, 294, 247, 220, 196, 0
+            },
+            // 4: Sihirli Köprü Parolası (Tatlı Ahşap Marimba & Çan - F / Dm / Bb / C)
+            {
+                175, 220, 262, 349, 330, 262, 220, 0,   294, 349, 440, 392, 349, 294, 262, 0,
+                233, 294, 349, 466, 440, 349, 294, 0,   262, 330, 392, 440, 392, 330, 262, 0,
+                349, 440, 523, 440, 392, 349, 330, 294, 262, 349, 440, 392, 349, 294, 262, 220,
+                233, 294, 349, 440, 392, 349, 330, 294, 262, 294, 349, 330, 294, 262, 349, 0
+            },
+            // 5: İyilik Bahçesi Yıldızları (Doğa Piyanosu & Nenni Huzuru - C / G / Am / F)
+            {
+                262, 294, 330, 392, 330, 294, 262, 0,   196, 247, 294, 392, 330, 294, 247, 0,
+                220, 262, 330, 440, 392, 330, 262, 0,   175, 220, 262, 349, 330, 294, 262, 0,
+                330, 392, 440, 392, 349, 330, 294, 262, 220, 262, 330, 392, 349, 330, 294, 0,
+                175, 220, 262, 330, 294, 262, 247, 196, 262, 294, 330, 294, 262, 247, 262, 0
+            },
+            // 6: Süper Kaptan Güvenli Rota (Akıcı Yumuşak Synth-Pop - Em / C / G / D)
+            {
+                165, 196, 247, 330, 294, 247, 196, 0,   262, 330, 392, 330, 294, 262, 247, 0,
+                196, 247, 294, 392, 330, 294, 247, 0,   294, 330, 392, 440, 392, 330, 294, 0,
+                330, 392, 494, 440, 392, 330, 294, 247, 262, 330, 392, 440, 392, 330, 294, 0,
+                196, 247, 294, 392, 330, 294, 262, 247, 165, 196, 247, 330, 294, 247, 165, 0
+            },
+            // 7: Barış Adası Kahramanları (Sıcak Akustik Ada Melodisi - C / F / G / C)
+            {
+                262, 330, 392, 330, 349, 440, 349, 262, 196, 247, 294, 392, 330, 294, 262, 0,
+                262, 330, 392, 523, 440, 392, 349, 330, 294, 349, 392, 440, 392, 330, 294, 0,
+                330, 262, 349, 262, 392, 330, 294, 247, 220, 262, 349, 330, 294, 262, 247, 196,
+                262, 294, 330, 349, 392, 440, 392, 330, 294, 330, 294, 247, 262, 330, 262, 0
+            },
+            // 8: Süper Yıldız Zıplama Macerası (Keyifli, Yumuşak Macera Kalimba & Pad Melodisi)
+            {
+                262, 330, 392, 523, 494, 392, 330, 262, 294, 349, 440, 523, 440, 349, 294, 0,
+                220, 262, 330, 440, 392, 330, 262, 220, 196, 247, 294, 392, 349, 294, 247, 0,
+                349, 440, 523, 440, 392, 330, 262, 330, 294, 349, 440, 392, 349, 294, 247, 196,
+                262, 330, 392, 440, 523, 494, 440, 392, 349, 330, 294, 247, 262, 330, 262, 0
+            }
     };
 
-    // Her oyunun kendine özgü nota hızı (ms)
+    // Arka plan yumuşak akor kök frekansları (her 8 adımda bir değişen sıcak pad akorları)
+    private static final int[][] CHORD_ROOTS = new int[][]{
+            {131, 131, 110, 110, 175, 175, 196, 196},
+            {110, 110, 175, 175, 131, 131, 196, 196},
+            {147, 147, 196, 196, 131, 131, 110, 110},
+            {196, 196, 165, 165, 131, 131, 147, 147},
+            {175, 175, 147, 147, 116, 116, 131, 131},
+            {131, 131, 196, 196, 110, 110, 175, 175},
+            {165, 165, 131, 131, 196, 196, 147, 147},
+            {131, 131, 175, 175, 196, 196, 131, 131},
+            {131, 147, 110, 196, 175, 147, 131, 196}
+    };
+
+    // Rahatlatıcı, telaşsız nota süreleri (ms): 64 nota x ~460ms = ~30 saniyelik uzun döngü!
     private static final int[] TEMPO_MS = new int[]{
-            165, // 0: Uzay (Hızlı)
-            250, // 1: Kale (Masalsı Vals)
-            180, // 2: Laboratuvar (Ritmik)
-            215, // 3: Hazine Avı (Marş)
-            190, // 4: Sihirli Köprü (Pop)
-            270, // 5: İyilik Bahçesi (Akıcı Flüt)
-            145, // 6: Güvenli Rota (Hızlı Yarış)
-            200, // 7: Barış Adası (Ada Ritmi)
-            150  // 8: Zıplama Macerası (Dinamik Platformer)
+            440, // 0: Uzay Ambient
+            480, // 1: Kelime Kalesi Arp
+            450, // 2: Laboratuvar Lo-Fi Rhodes
+            460, // 3: Zaman Gezgini Akustik
+            430, // 4: Sihirli Köprü Marimba
+            520, // 5: İyilik Bahçesi Huzurlu Piyano
+            420, // 6: Güvenli Rota Yumuşak Pop
+            460, // 7: Barış Adası Akustik
+            390  // 8: Zıplama Macerası Keyifli Kalimba
     };
 
     public synchronized void startBackgroundMusic(int melodyIndex) {
@@ -96,6 +158,10 @@ public class VeliGameMusicSynthesizer {
         }
     }
 
+    public void stopMusic() {
+        stopBackgroundMusic();
+    }
+
     private void runMusicLoop() {
         try {
             int minBuf = AudioTrack.getMinBufferSize(
@@ -103,7 +169,7 @@ public class VeliGameMusicSynthesizer {
                     AudioFormat.CHANNEL_OUT_MONO,
                     AudioFormat.ENCODING_PCM_16BIT
             );
-            int maxSamples = (SAMPLE_RATE * 300) / 1000;
+            int maxSamples = (SAMPLE_RATE * 650) / 1000;
             bgTrack = new AudioTrack(
                     AudioManager.STREAM_MUSIC,
                     SAMPLE_RATE,
@@ -115,16 +181,35 @@ public class VeliGameMusicSynthesizer {
             bgTrack.play();
 
             short[] buffer = new short[maxSamples];
+            // Yumuşak akustik eko (reverb) tamponu (260 ms gecikmeli sıcak yankı)
+            int echoLen = (SAMPLE_RATE * 260) / 1000;
+            float[] echoRing = new float[echoLen];
+            int echoPos = 0;
+
             int step = 0;
+            int cycle = 0;
+            double padPhase1 = 0.0;
+            double padPhase2 = 0.0;
 
             while (playing) {
                 int idx = currentMelodyIndex % MELODIES.length;
                 int[] notes = MELODIES[idx];
+                int[] roots = CHORD_ROOTS[idx];
                 int noteDurationMs = TEMPO_MS[idx];
-                int samplesPerNote = (SAMPLE_RATE * noteDurationMs) / 1000;
+                int samplesPerNote = Math.min(maxSamples, (SAMPLE_RATE * noteDurationMs) / 1000);
 
-                int freq = notes[step % notes.length];
-                int bassFreq = (freq > 0) ? (freq / 2) : 196;
+                int noteStep = step % notes.length;
+                if (noteStep == 0 && step > 0) {
+                    cycle++;
+                }
+                int freq = notes[noteStep];
+                // Her döngüde hafif oktav/harmoni varyasyonu ekleyerek müziğin tekdüzeleşmesini önle
+                if (cycle % 2 == 1 && (noteStep % 4 == 2) && freq > 0) {
+                    freq = (int) (freq * 1.25); // Yumuşak üçlü armoni varyasyonu
+                }
+
+                int chordRoot = roots[(noteStep / 8) % roots.length];
+                int chordFifth = (chordRoot * 3) / 2;
                 step++;
 
                 if (muted) {
@@ -132,37 +217,48 @@ public class VeliGameMusicSynthesizer {
                         buffer[i] = 0;
                     }
                 } else {
+                    int attackSamples = Math.min(900, samplesPerNote / 5);
+                    int releaseSamples = Math.min(900, samplesPerNote / 5);
+
                     for (int i = 0; i < samplesPerNote; i++) {
                         double t = (double) i / SAMPLE_RATE;
                         double progress = (double) i / samplesPerNote;
-                        double env = 1.0 - progress * 0.72;
-                        if (i < 300) {
-                            env *= ((double) i / 300.0);
+
+                        // Tıklama/çıtırtı önleyici yumuşak zarf (Soft Attack + Doğal Akustik Sönümlenme)
+                        double env = Math.exp(-3.1 * progress);
+                        if (i < attackSamples) {
+                            env *= ((double) i / attackSamples);
+                        } else if (i > samplesPerNote - releaseSamples) {
+                            env *= ((double) (samplesPerNote - i) / releaseSamples);
                         }
 
-                        double wave = 0.0;
+                        // Arka plan sıcak Pad akoru (kesintisiz faz ile yumuşak ambiyans)
+                        padPhase1 += (2.0 * Math.PI * chordRoot) / SAMPLE_RATE;
+                        padPhase2 += (2.0 * Math.PI * chordFifth) / SAMPLE_RATE;
+                        if (padPhase1 > Math.PI * 200) padPhase1 -= Math.PI * 200;
+                        if (padPhase2 > Math.PI * 200) padPhase2 -= Math.PI * 200;
+
+                        double warmPad = (Math.sin(padPhase1) * 0.22 + Math.sin(padPhase2) * 0.14);
+
+                        double melodyWave = 0.0;
                         if (freq > 0) {
-                            if (idx == 0 || idx == 6 || idx == 8) {
-                                // Chiptune Kare + Bass armonisi (Uzay, Yarış, Zıplama Oyunu)
-                                double sq = Math.sin(2.0 * Math.PI * freq * t) >= 0 ? 0.65 : -0.65;
-                                double sub = Math.sin(2.0 * Math.PI * bassFreq * t) * 0.35;
-                                wave = sq + sub;
-                            } else if (idx == 1 || idx == 5) {
-                                // Yumuşak Flüt / Arp Vibrato tınısı (Kelime Kalesi, İyilik Bahçesi)
-                                double vib = Math.sin(2.0 * Math.PI * 6.0 * t) * 3.0;
-                                wave = Math.sin(2.0 * Math.PI * (freq + vib) * t) * 0.8
-                                        + Math.sin(2.0 * Math.PI * (freq * 2.0) * t) * 0.2;
-                            } else {
-                                // Zengin Harmonik Marimba / Keşif tınısı
-                                wave = Math.sin(2.0 * Math.PI * freq * t) * 0.65
-                                        + Math.sin(2.0 * Math.PI * (freq * 1.5) * t) * 0.25
-                                        + Math.sin(2.0 * Math.PI * bassFreq * t) * 0.2;
-                            }
-                        } else {
-                            // Ritmik alt bas vuruşu
-                            wave = Math.sin(2.0 * Math.PI * bassFreq * t) * 0.3 * (1.0 - progress);
+                            // Akustik Piyano / Kalimba / Arp tınısı (yumuşak temel dalga + sıcak 2. ve 3. harmonik)
+                            double fundamental = Math.sin(2.0 * Math.PI * freq * t);
+                            double secondHarm = Math.sin(2.0 * Math.PI * (freq * 2.0) * t) * Math.exp(-5.5 * progress) * 0.22;
+                            double thirdHarm = Math.sin(2.0 * Math.PI * (freq * 3.0) * t) * Math.exp(-8.0 * progress) * 0.06;
+                            melodyWave = (fundamental * 0.72 + secondHarm + thirdHarm) * env;
                         }
-                        buffer[i] = (short) (wave * env * 2500);
+
+                        float drySample = (float) (melodyWave * 0.75 + warmPad * 0.25);
+                        float echoed = drySample + echoRing[echoPos] * 0.34f;
+                        echoRing[echoPos] = echoed;
+                        echoPos = (echoPos + 1) % echoLen;
+
+                        // Yumuşak ses seviyesi (rahatsız etmeyen dinlendirici arka plan düzeyi)
+                        int pcmVal = (int) (echoed * 1650.0f);
+                        if (pcmVal > 12000) pcmVal = 12000;
+                        if (pcmVal < -12000) pcmVal = -12000;
+                        buffer[i] = (short) pcmVal;
                     }
                 }
                 if (bgTrack != null && playing) {
@@ -175,25 +271,29 @@ public class VeliGameMusicSynthesizer {
 
     public void playSuccessEffect() {
         if (muted) return;
-        playShortEffectAsync(new int[]{523, 659, 784, 1046}, 70);
+        // Yumuşak akustik arp akoru (C4 - E4 - G4 - C5)
+        playShortEffectAsync(new int[]{262, 330, 392, 523}, 85, 2400);
     }
 
     public void playWrongEffect() {
         if (muted) return;
-        playShortEffectAsync(new int[]{311, 261}, 130);
+        // Nazik, yumuşak uyarı tonu (sert buzzer yerine sıcak ahşap marimba ikilisi)
+        playShortEffectAsync(new int[]{247, 220}, 140, 2000);
     }
 
     public void playJumpEffect() {
         if (muted) return;
-        playShortEffectAsync(new int[]{330, 440, 587, 784}, 38);
+        // Yumuşak su damlası / kalimba zıplama sesi
+        playShortEffectAsync(new int[]{294, 392, 494}, 45, 1800);
     }
 
     public void playCoinEffect() {
         if (muted) return;
-        playShortEffectAsync(new int[]{987, 1318}, 60);
+        // Tatlı müzik kutusu yıldız sesi
+        playShortEffectAsync(new int[]{440, 587}, 75, 2100);
     }
 
-    private void playShortEffectAsync(final int[] freqs, final int noteMs) {
+    private void playShortEffectAsync(final int[] freqs, final int noteMs, final int amplitude) {
         new Thread(new Runnable() {
             @Override
             public void run() {
@@ -205,10 +305,17 @@ public class VeliGameMusicSynthesizer {
                     for (int n = 0; n < freqs.length; n++) {
                         int f = freqs[n];
                         int offset = n * samplesPerNote;
+                        int attack = Math.min(250, samplesPerNote / 4);
                         for (int i = 0; i < samplesPerNote; i++) {
                             double t = (double) i / SAMPLE_RATE;
-                            double env = 1.0 - ((double) i / samplesPerNote) * 0.45;
-                            pcm[offset + i] = (short) (Math.sin(2.0 * Math.PI * f * t) * env * 6200);
+                            double progress = (double) i / samplesPerNote;
+                            double env = Math.exp(-3.5 * progress);
+                            if (i < attack) {
+                                env *= ((double) i / attack);
+                            }
+                            double wave = Math.sin(2.0 * Math.PI * f * t) * 0.8
+                                    + Math.sin(2.0 * Math.PI * (f * 2.0) * t) * 0.2 * Math.exp(-5.0 * progress);
+                            pcm[offset + i] = (short) (wave * env * amplitude);
                         }
                     }
 
@@ -222,7 +329,7 @@ public class VeliGameMusicSynthesizer {
                     );
                     sfx.write(pcm, 0, totalSamples);
                     sfx.play();
-                    Thread.sleep((long) freqs.length * noteMs + 90L);
+                    Thread.sleep((long) freqs.length * noteMs + 100L);
                     sfx.stop();
                     sfx.release();
                 } catch (Exception ignored) {

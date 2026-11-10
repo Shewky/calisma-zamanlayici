@@ -20,7 +20,9 @@ import android.widget.Toast;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.HashSet;
 import java.util.Random;
+import java.util.Set;
 
 /**
  * Öğrenci uygulamasındaki Eğlence (Oyun) Merkezi:
@@ -59,6 +61,8 @@ public class EntertainmentActivity extends Activity {
     private final GameMusicSynthesizer musicSynth = new GameMusicSynthesizer();
     private final Handler timerHandler = new Handler(Looper.getMainLooper());
     private final Random random = new Random();
+    private final Set<String> askedPrompts = new HashSet<>();
+    private int bestStreak = 0;
 
     private int totalEntElapsedSeconds = 0;
     private boolean elevenMinWarningShown = false;
@@ -239,9 +243,8 @@ public class EntertainmentActivity extends Activity {
         jumpGameView = new PlatformerJumpGameView(this, new PlatformerJumpGameView.JumpGameListener() {
             @Override
             public void onStatsUpdated(int score, int stage, String stageName, int lives) {
-                StringBuilder hearts = new StringBuilder();
-                for (int i = 0; i < lives; i++) hearts.append("❤️");
-                tvJumpGameStatus.setText("🏃‍♂️ Aşama " + stage + " (" + stageName + ") • ⭐ " + score + " • " + hearts);
+                tvJumpGameStatus.setSingleLine(true);
+                tvJumpGameStatus.setText("🗺️ Parkur " + stage + "/6: " + stageName + " (Üstten Parkur Seçebilirsin)");
             }
 
             @Override
@@ -463,6 +466,7 @@ public class EntertainmentActivity extends Activity {
         activeGameSessionSeconds = 0;
         currentScore = 0;
         currentStreak = 0;
+        bestStreak = 0;
         currentLives = 3;
 
         musicSynth.setMelodyIndex(game.index);
@@ -491,8 +495,20 @@ public class EntertainmentActivity extends Activity {
     }
 
     private void loadNextQuestion() {
+        if (currentLives <= 0) return;
         int grade = StudyDatabaseHelper.getGradeLevel(this);
-        final QuestionItem q = generateGradeScaledQuestion(activeGameIndex % 8, grade, random);
+        QuestionItem candidate = generateGradeScaledQuestion(activeGameIndex % 8, grade, random);
+        for (int attempt = 0; attempt < 45; attempt++) {
+            if (!askedPrompts.contains(candidate.prompt)) {
+                break;
+            }
+            candidate = generateGradeScaledQuestion(activeGameIndex % 8, grade, random);
+        }
+        if (askedPrompts.size() > 350) {
+            askedPrompts.clear();
+        }
+        askedPrompts.add(candidate.prompt);
+        final QuestionItem q = candidate;
 
         tvGameQuestionPrompt.setText(q.prompt);
         layoutGameOptionButtons.removeAllViews();
@@ -522,217 +538,698 @@ public class EntertainmentActivity extends Activity {
     }
 
     private void onAnswerSelected(String chosen, String correct) {
+        if (currentLives <= 0) return;
         if (chosen.equals(correct)) {
             currentStreak++;
+            if (currentStreak > bestStreak) {
+                bestStreak = currentStreak;
+            }
             int gained = 10 + (currentStreak * 5);
             currentScore += gained;
             musicSynth.playSuccessEffect();
             starEffectView.triggerBurst("🌟 +" + gained + " PUAN! (" + currentStreak + "x SERİ!) 🌟");
             tvGameFeedbackBanner.setText("✅ Harika! Doğru cevap: " + correct);
+            updateStatsBar();
+            timerHandler.postDelayed(this::loadNextQuestion, 600L);
         } else {
             currentStreak = 0;
             currentLives--;
             musicSynth.playWrongEffect();
-            tvGameFeedbackBanner.setText("💡 Dikkat! Doğru cevap '" + correct + "' olacaktı. Devam et!");
+            tvGameFeedbackBanner.setText("💡 Dikkat! Doğru cevap '" + correct + "' olacaktı.");
+            updateStatsBar();
             if (currentLives <= 0) {
-                currentLives = 3;
+                showQuizGameOverDialog();
+            } else {
+                timerHandler.postDelayed(this::loadNextQuestion, 900L);
             }
         }
-        updateStatsBar();
-        timerHandler.postDelayed(this::loadNextQuestion, 650L);
     }
 
-    /**
-     * Zenginleştirilmiş Soru Havuzu (1. Sınıftan 8. Sınıfa kadar uyarlamalı dinamik sorular).
-     */
+    private void showQuizGameOverDialog() {
+        if (isFinishing()) return;
+        new AlertDialog.Builder(this)
+                .setCancelable(false)
+                .setTitle("💔 3 Canın Bitti! Oyun Sona Erdi")
+                .setMessage("Oyun: " + activeGameTitle
+                        + "\n⭐ Toplam Puanın: " + currentScore
+                        + "\n🔥 En Yüksek Serin: " + bestStreak + "x"
+                        + "\n\nYeni üretilen sorularla tekrar oynamak ister misin?")
+                .setPositiveButton("🔄 Tekrar Oyna", (d, w) -> {
+                    currentScore = 0;
+                    currentStreak = 0;
+                    bestStreak = 0;
+                    currentLives = 3;
+                    updateStatsBar();
+                    loadNextQuestion();
+                })
+                .setNegativeButton("🏠 Oyun Lobisine Dön", (d, w) -> {
+                    saveActiveGameSessionToCalendarIfNeeded();
+                    showLobbyScreen();
+                })
+                .show();
+    }
+
+    // =========================================================================
+    // AKILLI DİNAMİK SORU ÜRETİM MOTORU (Yüzlerce Tekrarsız Kombinasyon & Şablon)
+    // =========================================================================
+
+    private static final String[][] SYNONYM_PAIRS = new String[][]{
+            {"Özgürlük", "Hürriyet"}, {"Misafir", "Konuk"}, {"Okul", "Mektep"}, {"İhtiyar", "Yaşlı"},
+            {"Hediye", "Armağan"}, {"Hekim", "Doktor"}, {"Yıl", "Sene"}, {"Sonbahar", "Güz"},
+            {"Rüzgâr", "Yel"}, {"Kalp", "Yürek"}, {"Soru", "Sual"}, {"Cevap", "Yanıt"},
+            {"Öykü", "Hikâye"}, {"Anı", "Hatıra"}, {"Zaman", "Vakit"}, {"Doğa", "Tabiat"},
+            {"Yetenek", "Kabiliyet"}, {"Görev", "Vazife"}, {"Ulus", "Millet"}, {"Yurt", "Vatan"},
+            {"Barış", "Sulh"}, {"Tutsak", "Esir"}, {"Fayda", "Yarar"}, {"Zarar", "Ziyan"},
+            {"Kırmızı", "Al"}, {"Beyaz", "Ak"}, {"Siyah", "Kara"}, {"Yoksul", "Fakir"},
+            {"Kafa", "Baş"}, {"Konut", "Ev"}, {"Pabuç", "Ayakkabı"}, {"Giysi", "Elbise"},
+            {"Besin", "Gıda"}, {"Asır", "Yüzyıl"}, {"Kelime", "Sözcük"}, {"Cümle", "Tümce"},
+            {"Öğrenci", "Talebe"}, {"Öğretmen", "Muallim"}, {"Sınav", "İmtihan"}, {"Delil", "Kanıt"},
+            {"Kuvvet", "Güç"}, {"Sevinç", "Mutluluk"}, {"Özlem", "Hasret"}, {"Uzak", "Irak"},
+            {"Nehir", "Irmak"}, {"Duru", "Berrak"}, {"Kılavuz", "Rehber"}, {"Şair", "Ozan"}
+    };
+
+    private static final String[][] ANTONYM_PAIRS = new String[][]{
+            {"Siyah", "Beyaz"}, {"Cesur", "Korkak"}, {"Acemi", "Usta"}, {"Taze", "Bayat"},
+            {"Sıcak", "Soğuk"}, {"Uzun", "Kısa"}, {"Geniş", "Dar"}, {"Yüksek", "Alçak"},
+            {"Ağır", "Hafif"}, {"Dolu", "Boş"}, {"Zengin", "Fakir"}, {"Ucuz", "Pahalı"},
+            {"Erken", "Geç"}, {"Hızlı", "Yavaş"}, {"Doğru", "Yanlış"}, {"Güzel", "Çirkin"},
+            {"İyi", "Kötü"}, {"Büyük", "Küçük"}, {"Genç", "Yaşlı"}, {"Açık", "Kapalı"},
+            {"İleri", "Geri"}, {"Alt", "Üst"}, {"İç", "Dış"}, {"Sağ", "Sol"},
+            {"Doğu", "Batı"}, {"Kuzey", "Güney"}, {"Barış", "Savaş"}, {"Ödül", "Ceza"},
+            {"Sevinç", "Üzüntü"}, {"Dost", "Düşman"}, {"İlk", "Son"}, {"Var", "Yok"},
+            {"Sert", "Yumuşak"}, {"Derin", "Sığ"}, {"Parlak", "Mat"}, {"Net", "Bulanık"},
+            {"Bolluk", "Kıtlık"}, {"Üretim", "Tüketim"}, {"Gelir", "Gider"}, {"Doğal", "Yapay"}
+    };
+
+    private static final String[][] PROVERBS_AND_IDIOMS = new String[][]{
+            {"Damlaya damlaya göl olur", "Tutumluluk ve küçük birikimlerin büyümesi", "göl", "deniz", "nehir", "yağmur"},
+            {"Bir elin nesi var, iki elin sesi var", "Yardımlaşma ve dayanışmanın gücü", "sesi", "gücü", "sözü", "yolu"},
+            {"Ağaç yaşken eğilir", "Eğitimin küçük yaşta başlamasının önemi", "yaşken", "büyükken", "uzunken", "yeşilken"},
+            {"Sakla samanı, gelir zamanı", "Her eşyanın bir gün işe yarayabileceği (tutumluluk)", "zamanı", "baharı", "sırası", "günü"},
+            {"Akacak kan damarda durmaz", "Olacak bir işin önüne geçilemeyeceği", "damarda", "yürekte", "yerde", "suda"},
+            {"Gülme komşuna, gelir başına", "Başkasının durumuna alay edilmemesi gerektiği", "başına", "evine", "kapısına", "yoluna"},
+            {"İşleyen demir pas tutmaz", "Çalışkan insanın dinç ve başarılı kalacağı", "pas", "toz", "kir", "su"},
+            {"Ne ekersen onu biçersin", "Yaptığın davranışların karşılığını görürsün", "biçersin", "bulursun", "alırsın", "yersin"},
+            {"Tatlı dil yılanı deliğinden çıkarır", "Güzel ve nazik konuşmanın ikna gücü", "deliğinden", "ormandan", "yuvasından", "taşından"},
+            {"Üzüm üzüme baka baka kararır", "Birlikte vakit geçirenlerin birbirine benzemesi", "kararır", "tatlanır", "büyür", "olgunlaşır"},
+            {"Aslan yattığı yerden belli olur", "Düzenli ve temiz olmanın kişiliği yansıttığı", "yattığı", "koştuğu", "baktığı", "gezdiği"},
+            {"Vakit nakittir", "Zamanın çok değerli olduğu", "nakittir", "altındır", "suyudur", "rüzgârdır"},
+            {"Kulak misafiri olmak", "Yanında konuşulanları istemeden duymak", "misafiri", "arkadaşı", "komşusu", "yolcusu"},
+            {"Göz boyamak", "Gösterişle yanıltmak, olduğundan farklı göstermek", "boyamak", "açmak", "kapatmak", "silmek"},
+            {"Etekleri zil çalmak", "Çok sevinmek, heyecanlanmak", "zil", "davul", "flüt", "çan"},
+            {"Burnunda tütmek", "Çok özlemek, hasret duymak", "tütmek", "yanmak", "sızlamak", "büyümek"},
+            {"İpe un sermek", "Bir işi yapmamak için bahaneler üretmek", "un", "su", "taş", "kum"},
+            {"Ağzı kulaklarına varmak", "Çok mutlu olmak, sevinçten gülümsemek", "kulaklarına", "gözlerine", "ellerine", "omzuna"},
+            {"Kılı kırk yarmak", "Çok titiz ve ayrıntılı incelemek", "kırk", "yüz", "on", "bin"},
+            {"Pabucu dama atılmak", "Değerini veya önceki ilgisini kaybetmek", "dama", "sokağa", "bahçeye", "çatıya"}
+    };
+
+    private static final String[][] SCIENCE_ELEMENTS = new String[][]{
+            {"Hidrojen", "H"}, {"Helyum", "He"}, {"Karbon", "C"}, {"Azot", "N"},
+            {"Oksijen", "O"}, {"Sodyum", "Na"}, {"Magnezyum", "Mg"}, {"Alüminyum", "Al"},
+            {"Klor", "Cl"}, {"Kalsiyum", "Ca"}, {"Demir", "Fe"}, {"Bakır", "Cu"},
+            {"Gümüş", "Ag"}, {"Altın", "Au"}, {"Çinko", "Zn"}, {"Potasyum", "K"}
+    };
+
+    private static final String[][] SCIENCE_FACTS = new String[][]{
+            {"Güneş'e en yakın olan gezegen hangisidir?", "Merkür", "Venüs", "Mars", "Jüpiter"},
+            {"Güneş sisteminin en büyük gezegeni hangisidir?", "Jüpiter", "Satürn", "Dünya", "Neptün"},
+            {"Kızıl Gezegen olarak bilinen gezegen hangisidir?", "Mars", "Venüs", "Merkür", "Uranüs"},
+            {"Etrafındaki belirgin halkalarıyla ünlü gezegen hangisidir?", "Satürn", "Mars", "Merkür", "Venüs"},
+            {"Dünya'nın doğal uydusu aşağıdakilerden hangisidir?", "Ay", "Güneş", "Phobos", "Titan"},
+            {"Katı bir maddenin ısı alarak doğrudan gaz haline geçmesine ne denir?", "Süblimleşme", "Erime", "Yoğuşma", "Donma"},
+            {"Gaz halindeki bir maddenin ısı vererek sıvı hale geçmesine ne denir?", "Yoğuşma", "Buharlaşma", "Erime", "Kırağılaşma"},
+            {"Sıvı bir maddenin ısı vererek katı hale geçmesine ne ad verilir?", "Donma", "Erime", "Kaynama", "Süblimleşme"},
+            {"Havadaki su buharının soğuk yüzeylerde doğrudan buz kristallerine dönüşmesine ne denir?", "Kırağılaşma", "Buharlaşma", "Erime", "Kaynama"},
+            {"Bitkilerin güneş ışığı yardımıyla besin ve oksijen üretmesine ne ad verilir?", "Fotosentez", "Solunum", "Terleme", "Sindirim"},
+            {"Hücrede enerji üretiminden sorumlu organel hangisidir?", "Mitokondri", "Ribozom", "Koful", "Sentrozom"},
+            {"Hücrede protein sentezinden sorumlu en küçük organel hangisidir?", "Ribozom", "Mitokondri", "Lizozom", "Golgi"},
+            {"Bitki hücresinde fotosentezin gerçekleştiği yeşil renkli organel hangisidir?", "Kloroplast", "Mitokondri", "Çekirdek", "Ribozom"},
+            {"Kuvveti ölçmek için kullanılan yaylı ölçü aletine ne ad verilir?", "Dinamometre", "Termometre", "Barometre", "Kronometre"},
+            {"Sıcaklığı ölçmek için kullanılan alete ne ad verilir?", "Termometre", "Dinamometre", "Ampermetre", "Voltmetre"},
+            {"Elektrik devresinde akım şiddetini ölçen alet hangisidir?", "Ampermetre", "Voltmetre", "Termometre", "Dinamometre"},
+            {"Ses en hızlı hangi ortamda yayılır?", "Katı maddelerde", "Sıvılarda", "Gazlarda", "Uzay boşluğunda"},
+            {"Işığın kırılması sonucu yağmur sonrası gökyüzünde oluşan renk kuşağına ne denir?", "Gökkuşağı", "Yıldırım", "Şimşek", "Kutup Işığı"},
+            {"Vücudumuzda kanı tüm organlara pompalayan kaslı organımız hangisidir?", "Kalp", "Akciğer", "Karaciğer", "Böbrek"},
+            {"Kanımızı süzerek atık maddeleri idrar olarak uzaklaştıran organımız hangisidir?", "Böbrek", "Mide", "Akciğer", "Kalp"},
+            {"Soluk alıp verirken oksijenin kana geçtiği temel solunum organımız hangisidir?", "Akciğer", "Mide", "Kalp", "Dalak"},
+            {"Besinlerin kimyasal sindiriminin tamamlandığı ve kana emildiği organ hangisidir?", "İnce bağırsak", "Yutak", "Yemek borusu", "Kalın bağırsak"}
+    };
+
+    private static final String[][] GEOGRAPHY_HISTORY_FACTS = new String[][]{
+            {"Türkiye'nin en yüksek dağı aşağıdakilerden hangisidir?", "Ağrı Dağı", "Erciyes Dağı", "Uludağ", "Palandöken"},
+            {"Türkiye'nin en büyük gölü hangisidir?", "Van Gölü", "Tuz Gölü", "Beyşehir Gölü", "Eğirdir Gölü"},
+            {"Türkiye sınırları içinde doğup yine Türkiye'de denize dökülen en uzun akarsuyumuz hangisidir?", "Kızılırmak", "Yeşilırmak", "Sakarya", "Gediz"},
+            {"Ülkemizde yazların sıcak ve kurak, kışların ılık ve yağışlı geçtiği iklimde bitki örtüsü nedir?", "Maki", "Bozkır", "Gür Orman", "Tundra"},
+            {"Karadeniz ikliminin doğal bitki örtüsü aşağıdakilerden hangisidir?", "Orman", "Bozkır", "Maki", "Çöl"},
+            {"İç Anadolu Bölgesi'nde görülen karasal iklimin doğal bitki örtüsü nedir?", "Bozkır (Step)", "Maki", "Orman", "Savan"},
+            {"Tarihte parayı ilk kez icat eden Anadolu uygarlığı hangisidir?", "Lidyalılar", "Hititler", "Frigler", "Urartular"},
+            {"Tarihte ilk yazılı antlaşma olan Kadeş Antlaşması'nı imzalayan Anadolu uygarlığı hangisidir?", "Hititler", "İyonlar", "Sümerler", "Babiller"},
+            {"Çivi yazısını bularak tarihi çağları başlatan Mezopotamya uygarlığı hangisidir?", "Sümerler", "Asurlar", "Urartular", "Frigler"},
+            {"Çentikli iğne olan 'Fibula'yı ve tapates halılarını yapan Anadolu uygarlığı hangisidir?", "Frigler", "Lidyalılar", "Hititler", "İyonlar"},
+            {"Mustafa Kemal Atatürk'ün Samsun'a çıkarak Milli Mücadele'yi başlattığı tarih hangisidir?", "19 Mayıs 1919", "23 Nisan 1920", "29 Ekim 1923", "30 Ağustos 1922"},
+            {"Türkiye Büyük Millet Meclisi (TBMM) hangi tarihte Ankara'da açılmıştır?", "23 Nisan 1920", "19 Mayıs 1919", "29 Ekim 1923", "10 Kasım 1938"},
+            {"Büyük Taarruz'un zaferle sonuçlandığı Zafer Bayramı hangi tarihte kutlanır?", "30 Ağustos", "29 Ekim", "19 Mayıs", "23 Nisan"},
+            {"Ekvator'a paralel olarak çizildiği varsayılan hayali çemberlere ne ad verilir?", "Paralel (Enlem)", "Meridyen (Boylam)", "Ölçek", "İzohips"},
+            {"İki meridyen arasındaki yerel saat farkı her yerde kaç dakikadır?", "4 dakika", "10 dakika", "15 dakika", "60 dakika"},
+            {"Peri bacaları ve yer altı şehirleriyle ünlü Kapadokya yöremiz hangi bölgemizdedir?", "İç Anadolu Bölgesi", "Karadeniz Bölgesi", "Marmara Bölgesi", "Ege Bölgesi"},
+            {"Pamukkale travertenleri hangi ilimizde yer almaktadır?", "Denizli", "Antalya", "Muğla", "Aydın"},
+            {"Sümela Manastırı ve Uzungöl hangi ilimizde bulunmaktadır?", "Trabzon", "Rize", "Artvin", "Ordu"}
+    };
+
+    private static final String[][] ENGLISH_VOCAB = new String[][]{
+            {"Apple", "Elma", "Meyve"}, {"Orange", "Portakal", "Meyve"}, {"Banana", "Muz", "Meyve"},
+            {"Strawberry", "Çilek", "Meyve"}, {"Watermelon", "Karpuz", "Meyve"}, {"Cherry", "Kiraz", "Meyve"},
+            {"Lion", "Aslan", "Hayvan"}, {"Elephant", "Fil", "Hayvan"}, {"Dolphin", "Yunus", "Hayvan"},
+            {"Butterfly", "Kelebek", "Hayvan"}, {"Rabbit", "Tavşan", "Hayvan"}, {"Turtle", "Kaplumbağa", "Hayvan"},
+            {"Eagle", "Kartal", "Hayvan"}, {"Monkey", "Maymun", "Hayvan"}, {"Horse", "At", "Hayvan"},
+            {"Red", "Kırmızı", "Renk"}, {"Blue", "Mavi", "Renk"}, {"Green", "Yeşil", "Renk"},
+            {"Yellow", "Sarı", "Renk"}, {"Purple", "Mor", "Renk"}, {"White", "Beyaz", "Renk"},
+            {"Black", "Siyah", "Renk"}, {"Pink", "Pembe", "Renk"}, {"Brown", "Kahverengi", "Renk"},
+            {"Teacher", "Öğretmen", "Meslek"}, {"Doctor", "Doktor", "Meslek"}, {"Engineer", "Mühendis", "Meslek"},
+            {"Pilot", "Pilot", "Meslek"}, {"Architect", "Mimar", "Meslek"}, {"Scientist", "Bilim İnsanı", "Meslek"},
+            {"Dentist", "Diş Hekimi", "Meslek"}, {"Chef", "Aşçı", "Meslek"}, {"Farmer", "Çiftçi", "Meslek"},
+            {"Monday", "Pazartesi", "Gün"}, {"Tuesday", "Salı", "Gün"}, {"Wednesday", "Çarşamba", "Gün"},
+            {"Thursday", "Perşembe", "Gün"}, {"Friday", "Cuma", "Gün"}, {"Saturday", "Cumartesi", "Gün"},
+            {"Sunday", "Pazar", "Gün"}, {"Spring", "İlkbahar", "Mevsim"}, {"Summer", "Yaz", "Mevsim"},
+            {"Autumn", "Sonbahar", "Mevsim"}, {"Winter", "Kış", "Mevsim"}, {"Library", "Kütüphane", "Mekân"},
+            {"Hospital", "Hastane", "Mekân"}, {"Bakery", "Fırın", "Mekân"}, {"Museum", "Müze", "Mekân"},
+            {"Kitchen", "Mutfak", "Ev"}, {"Bedroom", "Yatak Odası", "Ev"}, {"Garden", "Bahçe", "Ev"},
+            {"Umbrella", "Şemsiye", "Eşya"}, {"Notebook", "Defter", "Eşya"}, {"Pencil", "Kurşun Kalem", "Eşya"},
+            {"Mirror", "Ayna", "Eşya"}, {"Clock", "Saat", "Eşya"}, {"Bridge", "Köprü", "Yapı"}
+    };
+
+    private static final String[][] ENGLISH_OPPOSITES = new String[][]{
+            {"Big", "Small"}, {"Hot", "Cold"}, {"Fast", "Slow"}, {"Tall", "Short"},
+            {"Happy", "Sad"}, {"Young", "Old"}, {"Clean", "Dirty"}, {"Easy", "Difficult"},
+            {"Heavy", "Light"}, {"Full", "Empty"}, {"Open", "Closed"}, {"Early", "Late"},
+            {"Strong", "Weak"}, {"Rich", "Poor"}, {"Long", "Short"}, {"New", "Old"}
+    };
+
     public static QuestionItem generateGradeScaledQuestion(int gameCategory, int grade, Random random) {
         if (gameCategory == 0) {
-            // Galaksi Sayı Avcısı (Dinamik Çok Çeşitli Sayısal Görevler)
-            int mode = random.nextInt(3);
-            if (grade <= 2) {
-                if (mode == 0) {
-                    int a = 6 + random.nextInt(18 * grade);
-                    int b = 4 + random.nextInt(14 * grade);
-                    int ans = a + b;
-                    return new QuestionItem("🚀 Uzay İstasyonu Toplamı:\n" + a + " + " + b + " kaçtır?",
-                            String.valueOf(ans), String.valueOf(ans + 2), String.valueOf(Math.max(1, ans - 3)), String.valueOf(ans + 5));
-                } else if (mode == 1) {
-                    int a = 15 + random.nextInt(20 * grade);
-                    int b = 4 + random.nextInt(12);
-                    int ans = a - b;
-                    return new QuestionItem("🚀 Kalkan Enerji Farkı:\n" + a + " - " + b + " kaçtır?",
-                            String.valueOf(ans), String.valueOf(ans + 3), String.valueOf(Math.max(0, ans - 2)), String.valueOf(ans + 6));
-                } else {
-                    int step = 2 + random.nextInt(4);
-                    int start = step * (1 + random.nextInt(4));
-                    int ans = start + step * 3;
-                    return new QuestionItem("🚀 Yıldız Örüntüsünde Sıradaki Sayı:\n" + start + " - " + (start + step) + " - " + (start + step * 2) + " - ?",
-                            String.valueOf(ans), String.valueOf(ans + step), String.valueOf(ans - 1), String.valueOf(ans + 2));
-                }
-            } else if (grade <= 4) {
-                if (mode == 0) {
-                    int a = 4 + random.nextInt(9);
-                    int b = 3 + random.nextInt(9);
-                    int c = random.nextInt(20);
-                    int ans = (a * b) + c;
-                    return new QuestionItem("🚀 Meteor Kalkanı Gücü:\n(" + a + " × " + b + ") + " + c + " işleminin sonucu kaçtır?",
-                            String.valueOf(ans), String.valueOf(ans + 4), String.valueOf(Math.max(1, ans - 6)), String.valueOf(ans + 9));
-                } else if (mode == 1) {
-                    int b = 3 + random.nextInt(7);
-                    int q = 5 + random.nextInt(12);
-                    int a = b * q;
-                    return new QuestionItem("🚀 Filo Paylaşımı:\n" + a + " ÷ " + b + " işleminin sonucu kaçtır?",
-                            String.valueOf(q), String.valueOf(q + 2), String.valueOf(Math.max(1, q - 1)), String.valueOf(q + 4));
-                } else {
-                    int side = 5 + random.nextInt(15);
-                    int perim = side * 4;
-                    return new QuestionItem("🚀 Kare şeklindeki güneş panelinin bir kenarı " + side + " metredir. Çevresi kaç metredir?",
-                            String.valueOf(perim), String.valueOf(side * side), String.valueOf(perim + 8), String.valueOf(side * 3));
-                }
-            } else if (grade <= 6) {
-                if (mode == 0) {
-                    int a = 7 + random.nextInt(12);
-                    int b = 5 + random.nextInt(11);
-                    int sub = 6 + random.nextInt(18);
-                    int ans = (a * b) - sub;
-                    return new QuestionItem("🚀 Galaksi Hız Denklemi:\n(" + a + " × " + b + ") - " + sub + " sonucu kaçtır?",
-                            String.valueOf(ans), String.valueOf(ans + 5), String.valueOf(ans - 4), String.valueOf(ans + 11));
-                } else if (mode == 1) {
-                    int base = 2 + random.nextInt(5);
-                    int ans = base * base * base;
-                    return new QuestionItem("🚀 Küp Reaktör Gücü:\n" + base + "³ (" + base + " üssü 3) kaçtır?",
-                            String.valueOf(ans), String.valueOf(base * 3), String.valueOf(base * base), String.valueOf(ans + 8));
-                } else {
-                    int whole = (2 + random.nextInt(8)) * 20;
-                    int ans = whole / 4;
-                    return new QuestionItem("🚀 Yakıt Deposunun %25'i (dörtte biri):\n" + whole + " litrenin %25'i kaç litredir?",
-                            String.valueOf(ans), String.valueOf(ans + 10), String.valueOf(whole / 2), String.valueOf(ans - 5));
-                }
-            } else {
-                if (mode == 0) {
-                    int x = 3 + random.nextInt(14);
-                    int k = 2 + random.nextInt(6);
-                    int m = 4 + random.nextInt(12);
-                    int rhs = k * x + m;
-                    return new QuestionItem("🚀 Kuantum Koordinatı:\n" + k + "x + " + m + " = " + rhs + " ise x kaçtır?",
-                            String.valueOf(x), String.valueOf(x + 2), String.valueOf(Math.max(1, x - 1)), String.valueOf(x + 4));
-                } else {
-                    int r = 4 + random.nextInt(11);
-                    int sq = r * r;
-                    return new QuestionItem("🚀 Karekök Motoru:\n√" + sq + " + 5 işleminin sonucu kaçtır?",
-                            String.valueOf(r + 5), String.valueOf(r + 2), String.valueOf(r + 8), String.valueOf(sq));
-                }
-            }
+            return generateMathQuestion(grade, random);
         } else if (gameCategory == 1) {
-            // Gizemli Kelime Kalesi (Genişletilmiş Soru Havuzu)
-            String[][] bank = new String[][]{
-                    {"🏰 'Özgürlük' kelimesinin eş anlamlısı olan kale parolası hangisidir?", "Hürriyet", "Esaret", "Kuvvet", "Adalet"},
-                    {"🏰 'Siyah' kelimesinin zıt anlamlısı olan anahtar hangisidir?", "Beyaz", "Karanlık", "Gri", "Gece"},
-                    {"🏰 'Misafir' kelimesinin eş anlamlısı nedir?", "Konuk", "Komşu", "Yolcu", "Arkadaş"},
-                    {"🏰 'Damlaya damlaya göl olur' atasözü neyin önemini anlatır?", "Tutumluluk ve birikim", "Hızlı koşmak", "Yağmur yağması", "Yüzme öğrenmek"},
-                    {"🏰 'Cesur' kelimesinin zıt anlamlısı hangisidir?", "Korkak", "Güçlü", "Kahraman", "Atılgan"},
-                    {"🏰 'Okul' kelimesinin eş anlamlısı hangisidir?", "Mektep", "Sınıf", "Kütüphane", "Bahçe"},
-                    {"🏰 'Kulak misafiri olmak' deyiminin anlamı nedir?", "Konuşulanları istemeden duymak", "Eve misafir çağırmak", "Müzik dinlemek", "Yüksek sesle konuşmak"},
-                    {"🏰 'İhtiyar' kelimesinin eş anlamlısı hangisidir?", "Yaşlı", "Genç", "Çocuk", "Bilge"},
-                    {"🏰 'Acemi' kelimesinin zıt anlamlısı hangisidir?", "Usta", "Çırak", "Yorgun", "Hızlı"},
-                    {"🏰 'Göz boyamak' deyimi ne anlama gelir?", "Gösterişle yanıltmak, kandırmak", "Resim yapmak", "Evi boyamak", "Gözlük takmak"},
-                    {"🏰 'Hediye' kelimesinin eş anlamlısı nedir?", "Armağan", "Ödül", "Emanet", "Mektup"},
-                    {"🏰 'Bir elin nesi var, iki elin sesi var' atasözü neyi vurgular?", "Yardımlaşma ve dayanışmayı", "Alkış tutmayı", "Yalnız çalışmayı", "Sessiz olmayı"},
-                    {"🏰 'Taze' kelimesinin zıt anlamlısı hangisidir?", "Bayat", "Yeni", "Sıcak", "Yumuşak"},
-                    {"🏰 'Hekim' kelimesinin eş anlamlısı nedir?", "Doktor", "Eczacı", "Öğretmen", "Mühendis"}
-            };
-            String[] pick = bank[random.nextInt(bank.length)];
-            return new QuestionItem(pick[0], pick[1], pick[2], pick[3], pick[4]);
+            return generateTurkishQuestion(grade, random);
         } else if (gameCategory == 2) {
-            // Çılgın Laboratuvar Keşfi (Genişletilmiş Soru Havuzu)
-            String[][] bank = new String[][]{
-                    {"🧪 Dünyamızın ısı ve ışık kaynağı olan yıldız hangisidir?", "Güneş", "Ay", "Mars", "Kutup Yıldızı"},
-                    {"🧪 Suyun katı haline laboratuvarda ne ad verilir?", "Buz", "Buhar", "Sis", "Yağmur"},
-                    {"🧪 Mıknatıs aşağıdaki maddelerden hangisini çeker?", "Demir çivi", "Tahta kalem", "Cam bardak", "Plastik silgi"},
-                    {"🧪 Bitkilerin güneş ışığıyla besin ve oksijen üretmesine ne denir?", "Fotosentez", "Buharlaşma", "Erime", "Yoğuşma"},
-                    {"🧪 Güneş sisteminde halkalarıyla ünlü gezegen hangisidir?", "Satürn", "Merkür", "Venüs", "Mars"},
-                    {"🧪 Ses aşağıdaki ortamlardan hangisinde yayılmaz?", "Boşlukta (Uzayda)", "Havada", "Suda", "Katı maddelerde"},
-                    {"🧪 Dünyamızın kendi etrafında bir tam dönüşü kaç saat sürer?", "24 saat (1 gün)", "365 gün", "12 saat", "30 gün"},
-                    {"🧪 Mıknatısın aynı kutupları (N ve N) birbirine yaklaştırılırsa ne olur?", "Birbirini iter", "Birbirini çeker", "Erir", "Işık saçar"},
-                    {"🧪 Katı bir maddenin ısı alarak sıvı hale geçmesine ne denir?", "Erime", "Donma", "Kaynama", "Kırağılaşma"},
-                    {"🧪 Vücudumuzda kanı pompalayan hayati organımız hangisidir?", "Kalp", "Mide", "Akciğer", "Karaciğer"},
-                    {"🧪 Elektrik devresinde elektriği açıp kapatmaya yarayan eleman nedir?", "Anahtar", "Pil", "Kablo", "Duy"},
-                    {"🧪 Güneş'e en yakın olan gezegen hangisidir?", "Merkür", "Neptün", "Jüpiter", "Dünya"}
-            };
-            String[] pick = bank[random.nextInt(bank.length)];
-            return new QuestionItem(pick[0], pick[1], pick[2], pick[3], pick[4]);
+            return generateScienceQuestion(grade, random);
         } else if (gameCategory == 3) {
-            // Zaman Gezgini Hazine Avı (Genişletilmiş Soru Havuzu)
-            String[][] bank = new String[][]{
-                    {"🧭 Pusulanın renkli ucu her zaman hangi yönü gösterir?", "Kuzey", "Güney", "Doğu", "Batı"},
-                    {"🧭 Güneş her sabah hangi yönden doğar?", "Doğu", "Batı", "Kuzey", "Güney"},
-                    {"🧭 Türkiye'nin başkenti hangi şehrimizdir?", "Ankara", "İstanbul", "İzmir", "Bursa"},
-                    {"🧭 Haritalarda denizler ve okyanuslar hangi renkle gösterilir?", "Mavi", "Kahverengi", "Yeşil", "Sarı"},
-                    {"🧭 Cumhuriyetimiz hangi tarihte ilan edilmiştir?", "29 Ekim 1923", "23 Nisan 1920", "19 Mayıs 1919", "30 Ağustos 1922"},
-                    {"🧭 Türkiye'de kaç coğrafi bölge bulunmaktadır?", "7 bölge", "5 bölge", "9 bölge", "12 bölge"},
-                    {"🧭 Fiziki haritalarda yüksek dağlar hangi renkle gösterilir?", "Kahverengi", "Mavi", "Yeşil", "Beyaz"},
-                    {"🧭 TBMM hangi tarihte açılmıştır ve Ulusal Egemenlik ve Çocuk Bayramı olarak kutlanır?", "23 Nisan 1920", "19 Mayıs 1919", "29 Ekim 1923", "30 Ağustos 1922"},
-                    {"🧭 Karıncaların yuvalarının ağzı genellikle hangi yönü gösterir?", "Güney", "Kuzey", "Batı", "Doğu"},
-                    {"🧭 Asya ile Avrupa kıtalarını birbirine bağlayan şehrimiz hangisidir?", "İstanbul", "Antalya", "Trabzon", "Konya"}
-            };
-            String[] pick = bank[random.nextInt(bank.length)];
-            return new QuestionItem(pick[0], pick[1], pick[2], pick[3], pick[4]);
+            return generateSocialStudiesQuestion(grade, random);
         } else if (gameCategory == 4) {
-            // Sihirli Köprü Parolası (Genişletilmiş Soru Havuzu)
-            String[][] bank = new String[][]{
-                    {"🌍 'Apple' kelimesinin Türkçe karşılığı nedir?", "Elma", "Armut", "Çilek", "Portakal"},
-                    {"🌍 'Book' kelimesinin Türkçe karşılığı nedir?", "Kitap", "Defter", "Kalem", "Masa"},
-                    {"🌍 'Blue' hangi rengin İngilizcesidir?", "Mavi", "Kırmızı", "Yeşil", "Sarı"},
-                    {"🌍 'Good Morning' ifadesi ne zaman söylenir?", "Sabah (Günaydın)", "Gece (İyi geceler)", "Vedalaşırken", "Teşekkür ederken"},
-                    {"🌍 'Cat' ve 'Dog' kelimeleri sırasıyla hangi hayvanlardır?", "Kedi ve Köpek", "Kuş ve Balık", "At ve Aslan", "Tavşan ve Kaplumbağa"},
-                    {"🌍 'School' kelimesinin anlamı nedir?", "Okul", "Hastane", "Kütüphane", "Park"},
-                    {"🌍 'Teacher' kelimesinin Türkçe karşılığı nedir?", "Öğretmen", "Doktor", "Mühendis", "Pilot"},
-                    {"🌍 'Water' ve 'Milk' sırasıyla ne demektir?", "Su ve Süt", "Ekmek ve Peynir", "Çay ve Kahve", "Meyve ve Sebze"},
-                    {"🌍 'Sun' ve 'Moon' kelimelerinin anlamı nedir?", "Güneş ve Ay", "Yıldız ve Bulut", "Gece ve Gündüz", "Yağmur ve Kar"},
-                    {"🌍 'Thank you' ifadesinin Türkçe karşılığı nedir?", "Teşekkür ederim", "Özür dilerim", "Merhaba", "Güle güle"},
-                    {"🌍 'Yellow' ve 'Green' hangi renklerdir?", "Sarı ve Yeşil", "Mor ve Turuncu", "Siyah ve Beyaz", "Pembe ve Kahverengi"},
-                    {"🌍 'Library' kelimesinin anlamı nedir?", "Kütüphane", "Sınıf", "Bahçe", "Müzik Odası"}
-            };
-            String[] pick = bank[random.nextInt(bank.length)];
-            return new QuestionItem(pick[0], pick[1], pick[2], pick[3], pick[4]);
+            return generateEnglishQuestion(grade, random);
         } else if (gameCategory == 5) {
-            // İyilik Bahçesi Yıldızları (Genişletilmiş Soru Havuzu)
-            String[][] bank = new String[][]{
-                    {"🕊️ Bir arkadaşımız bize yardım ettiğinde hangi nezaket sözünü söyleriz?", "Teşekkür ederim", "Acele et", "Bana ne", "Sonra görüşürüz"},
-                    {"🕊️ İyilik Bahçesinde en parlak yıldız hangi davranışla kazanılır?", "Dürüst ve yardımsever olmak", "Eşyaları dağınık bırakmak", "Sıraya girmemek", "Arkadaşları küstürmek"},
-                    {"🕊️ Verdiğimiz sözü tutmak bize ne kazandırır?", "Güven ve saygı", "Yorgunluk", "Zaman kaybı", "Unutkanlık"},
-                    {"🕊️ Büyüklerimizi ve küçüklerimizi koruyup sevgi göstermek hangi değerimizdir?", "Merhamet ve saygı", "Kıskançlık", "İnatçılık", "Acelecilik"},
-                    {"🕊️ İstemeden bir hata yaptığımızda ne söylemeliyiz?", "Özür dilerim", "Senin suçun", "Beni ilgilendirmez", "Hiçbir şey"},
-                    {"🕊️ Kendimize yapılmasını istemediğimiz bir davranışı başkasına yapmamaya ne denir?", "Empati (Diğerkâmlık)", "Bencillik", "Kızgınlık", "Unutkanlık"},
-                    {"🕊️ Sofrada yemeğe başlamadan önce ve bitirdikten sonra ne yapmak güzel bir davranıştır?", "Şükretmek ve elleri yıkamak", "Televizyonu açmak", "Koşmak", "Yemeği dökmek"}
-            };
-            String[] pick = bank[random.nextInt(bank.length)];
-            return new QuestionItem(pick[0], pick[1], pick[2], pick[3], pick[4]);
+            return generateValuesQuestion(grade, random);
         } else if (gameCategory == 6) {
-            // Süper Kaptan Güvenli Rota (Genişletilmiş Soru Havuzu)
-            String[][] bank = new String[][]{
-                    {"🏎️ Yaya geçidinde yayalar için hangi ışık yandığında karşıya geçilir?", "Yeşil ışık", "Kırmızı ışık", "Sarı ışık", "Mavi ışık"},
-                    {"🏎️ Otomobile bindiğimizde güvenliğimiz için ilk ne yapmalıyız?", "Emniyet kemerini takmalıyız", "Camı açmalıyız", "Radyoyu açmalıyız", "Ayakta durmalıyız"},
-                    {"🏎️ Bisiklet ve kaykay sürerken başımızı korumak için ne takmalıyız?", "Kask", "Şapka", "Gözlük", "Atkı"},
-                    {"🏎️ Türkiye'de tüm acil durumlar için aranan tek ortak acil numara kaçtır?", "112", "182", "153", "114"},
-                    {"🏎️ Üçgen şeklindeki kırmızı çerçeveli trafik levhaları bize ne bildirir?", "Tehlike uyarı işaretidir, dikkatli olunmalıdır", "Park yapılacağını", "Otoyol bittiğini", "Restoran olduğunu"},
-                    {"🏎️ Yaya kaldırımı olmayan yollarda yürürken yolun hangi tarafından yürümeliyiz?", "Gelen araçları görebilmek için sol kenardan", "Yolun tam ortasından", "Gözümüz kapalı", "Koşarak sağdan"},
-                    {"🏎️ Okul servisinden indiğimizde hemen taşıtın önünden veya arkasından geçmek doğru mudur?", "Hayır, servis uzaklaşana kadar kaldırımda beklemeliyiz", "Evet, koşarak geçmeliyiz", "Fark etmez", "Geri geri yürümeliyiz"}
-            };
-            String[] pick = bank[random.nextInt(bank.length)];
-            return new QuestionItem(pick[0], pick[1], pick[2], pick[3], pick[4]);
+            return generateSafetyQuestion(grade, random);
         } else {
-            // Barış Adası Kahramanları (Genişletilmiş Soru Havuzu)
-            String[][] bank = new String[][]{
-                    {"⚖️ Her çocuğun eğitim alma, oyun oynama ve sağlık hizmetinden yararlanma hakkına ne denir?", "Çocuk Hakları", "Yarışma Kuralları", "Alışveriş Listesi", "Nöbet Çizelgesi"},
-                    {"⚖️ Ortak kullanım alanlarını ve doğayı temiz tutmak kimin görevidir?", "Hepimizin ortak sorumluluğudur", "Sadece yetişkinlerin", "Hiç kimsenin", "Sadece turistlerin"},
-                    {"⚖️ Grup çalışmalarında başarıya ulaşmanın en güzel yolu nedir?", "İş birliği ve adaletli paylaşım", "Tek başına karar vermek", "Başkalarını dinlememek", "Çalışmayı yarıda bırakmak"},
-                    {"⚖️ İnsanların düşüncelerine saygı duymak Barış Adasında neyi güçlendirir?", "Hoşgörü ve dostluğu", "Kavgayı", "Gürültüyü", "Yalnızlığı"},
-                    {"⚖️ Bir anlaşmazlık yaşadığımızda sorunu nasıl çözmeliyiz?", "Konuşarak ve uzlaşarak", "Bağırarak", "Küserek", "Eşyaları fırlatarak"},
-                    {"⚖️ Her insanın doğuştan sahip olduğu temel hakların özelliğine ne denir?", "Vazgeçilmez ve eşit haklar", "Sadece zenginlerin hakkı", "Geçici izin", "Oyun kuralı"}
-            };
-            String[] pick = bank[random.nextInt(bank.length)];
-            return new QuestionItem(pick[0], pick[1], pick[2], pick[3], pick[4]);
+            return generateCivicsQuestion(grade, random);
         }
+    }
+
+    private static QuestionItem generateMathQuestion(int grade, Random random) {
+        int template = random.nextInt(8);
+        if (grade <= 2) {
+            if (template == 0) {
+                int a = 8 + random.nextInt(25 * grade);
+                int b = 5 + random.nextInt(20 * grade);
+                int ans = a + b;
+                return new QuestionItem("🚀 Uzay İstasyonu Toplamı:\n" + a + " + " + b + " kaçtır?",
+                        String.valueOf(ans), String.valueOf(ans + 2), String.valueOf(Math.max(1, ans - 3)), String.valueOf(ans + 10));
+            } else if (template == 1) {
+                int a = 22 + random.nextInt(30 * grade);
+                int b = 6 + random.nextInt(18);
+                int ans = a - b;
+                return new QuestionItem("🚀 Kalkan Enerji Farkı:\n" + a + " - " + b + " kaçtır?",
+                        String.valueOf(ans), String.valueOf(ans + 4), String.valueOf(Math.max(0, ans - 2)), String.valueOf(ans + 7));
+            } else if (template == 2) {
+                int step = 2 + random.nextInt(5);
+                int start = step * (1 + random.nextInt(6));
+                int ans = start + step * 3;
+                return new QuestionItem("🚀 Yıldız Örüntüsünde Sıradaki Sayı:\n" + start + " ➔ " + (start + step) + " ➔ " + (start + step * 2) + " ➔ ?",
+                        String.valueOf(ans), String.valueOf(ans + step), String.valueOf(ans - 1), String.valueOf(ans + 2));
+            } else if (template == 3) {
+                int missing = 7 + random.nextInt(25);
+                int add = 9 + random.nextInt(20);
+                int sum = missing + add;
+                return new QuestionItem("🚀 Gizli Roket Şifresi:\n□ + " + add + " = " + sum + " işleminde □ yerine hangi sayı gelmelidir?",
+                        String.valueOf(missing), String.valueOf(missing + 3), String.valueOf(Math.max(1, missing - 2)), String.valueOf(sum + add));
+            } else if (template == 4) {
+                int tens = 2 + random.nextInt(7);
+                int ones = 1 + random.nextInt(8);
+                int val = tens * 10 + ones;
+                return new QuestionItem("🚀 Basamak Kulesi:\n" + tens + " onluk ve " + ones + " birlikten oluşan sayı kaçtır?",
+                        String.valueOf(val), String.valueOf(ones * 10 + tens), String.valueOf(val + 10), String.valueOf(val - 1));
+            } else if (template == 5) {
+                int boxes = 2 + random.nextInt(5);
+                int perBox = 3 + random.nextInt(5);
+                int ans = boxes * perBox;
+                return new QuestionItem("🚀 Uzay Gemisinde " + boxes + " kutu var ve her kutuda " + perBox + " yıldız kristali bulunuyor. Toplam kaç kristal vardır?",
+                        String.valueOf(ans), String.valueOf(boxes + perBox), String.valueOf(ans + perBox), String.valueOf(Math.max(1, ans - 2)));
+            } else if (template == 6) {
+                int n = 14 + random.nextInt(70);
+                int nearestTen = ((n + 5) / 10) * 10;
+                if (n % 10 == 5) nearestTen = ((n / 10) + 1) * 10;
+                return new QuestionItem("🚀 Yakıt Yuvarlama:\n" + n + " sayısını en yakın onluğa yuvarladığımızda sonuç kaç olur?",
+                        String.valueOf(nearestTen), String.valueOf(nearestTen + 10), String.valueOf(Math.max(10, nearestTen - 10)), String.valueOf(n));
+            } else {
+                int hours = 2 + random.nextInt(6);
+                int delta = 2 + random.nextInt(4);
+                int ans = hours + delta;
+                return new QuestionItem("🚀 Saat " + hours + ":00'da havalanan uzay mekiği " + delta + " saat sonra inmiştir. Saat kaçta inmiştir?",
+                        ans + ":00", (ans + 1) + ":00", (ans - 1) + ":00", (ans + 2) + ":00");
+            }
+        } else if (grade <= 4) {
+            if (template == 0) {
+                int a = 6 + random.nextInt(12);
+                int b = 4 + random.nextInt(9);
+                int c = 5 + random.nextInt(25);
+                int ans = (a * b) + c;
+                return new QuestionItem("🚀 Meteor Kalkanı:\n(" + a + " × " + b + ") + " + c + " işleminin sonucu kaçtır?",
+                        String.valueOf(ans), String.valueOf(ans + 6), String.valueOf(Math.max(1, ans - 4)), String.valueOf(ans + 12));
+            } else if (template == 1) {
+                int b = 4 + random.nextInt(8);
+                int q = 6 + random.nextInt(15);
+                int a = b * q;
+                return new QuestionItem("🚀 Filo Paylaşımı:\n" + a + " ÷ " + b + " işleminin sonucu kaçtır?",
+                        String.valueOf(q), String.valueOf(q + 2), String.valueOf(Math.max(1, q - 3)), String.valueOf(q + 5));
+            } else if (template == 2) {
+                int w = 6 + random.nextInt(14);
+                int l = w + 3 + random.nextInt(10);
+                int perim = 2 * (w + l);
+                return new QuestionItem("🚀 Dikdörtgen Güneş Panelinin kısa kenarı " + w + " m, uzun kenarı " + l + " m'dir. Çevresi kaç metredir?",
+                        String.valueOf(perim), String.valueOf(w * l), String.valueOf(w + l), String.valueOf(perim + 10));
+            } else if (template == 3) {
+                int denom = 3 + random.nextInt(6);
+                int mult = 4 + random.nextInt(10);
+                int whole = denom * mult;
+                int num = 1 + random.nextInt(denom - 1);
+                int ans = mult * num;
+                return new QuestionItem("🚀 Yakıt Deposundaki " + whole + " litrenin " + num + "/" + denom + "'ü kaç litredir?",
+                        String.valueOf(ans), String.valueOf(ans + mult), String.valueOf(whole - ans), String.valueOf(ans + 4));
+            } else if (template == 4) {
+                int mins = 2 + random.nextInt(5);
+                int extraSec = 10 + random.nextInt(45);
+                int totalSec = mins * 60 + extraSec;
+                return new QuestionItem("🚀 Zaman Dönüşümü:\n" + mins + " dakika " + extraSec + " saniye toplam kaç saniyedir?",
+                        String.valueOf(totalSec), String.valueOf(totalSec + 20), String.valueOf(mins * 100 + extraSec), String.valueOf(totalSec - 30));
+            } else if (template == 5) {
+                int side = 5 + random.nextInt(12);
+                int area = side * side;
+                return new QuestionItem("🚀 Bir kenarı " + side + " birim olan kare şeklindeki uzay pistinin alanı kaç birimkaredir?",
+                        String.valueOf(area), String.valueOf(side * 4), String.valueOf(area + side), String.valueOf(area - 4));
+            } else if (template == 6) {
+                int a = 120 + random.nextInt(350);
+                int b = 85 + random.nextInt(220);
+                int ans = a + b;
+                return new QuestionItem("🚀 İki Keşif uydusundan birincisi " + a + " fotoğraf, ikincisi " + b + " fotoğraf çekti. Toplam kaç fotoğraf çekildi?",
+                        String.valueOf(ans), String.valueOf(ans + 10), String.valueOf(ans - 15), String.valueOf(ans + 25));
+            } else {
+                int angle1 = 35 + random.nextInt(55);
+                int angle2 = 40 + random.nextInt(50);
+                int angle3 = 180 - (angle1 + angle2);
+                return new QuestionItem("🚀 Üçgen Yelkenli bir uzay aracının iki iç açısı " + angle1 + "° ve " + angle2 + "° ise üçüncü iç açısı kaç derecedir?",
+                        angle3 + "°", (angle3 + 10) + "°", (angle3 - 10) + "°", (90 - angle1 / 2) + "°");
+            }
+        } else if (grade <= 6) {
+            if (template == 0) {
+                int a = 8 + random.nextInt(14);
+                int b = 6 + random.nextInt(12);
+                int sub = 9 + random.nextInt(25);
+                int ans = (a * b) - sub;
+                return new QuestionItem("🚀 İşlem Önceliği Görevi:\n(" + a + " × " + b + ") - " + sub + " sonucu kaçtır?",
+                        String.valueOf(ans), String.valueOf(ans + 6), String.valueOf(ans - 5), String.valueOf(ans + 14));
+            } else if (template == 1) {
+                int base = 2 + random.nextInt(5);
+                int exp = (base <= 3) ? (3 + random.nextInt(2)) : 3;
+                int ans = 1;
+                for (int i = 0; i < exp; i++) ans *= base;
+                return new QuestionItem("🚀 Üslü Reaktör Gücü:\n" + base + "^" + exp + " (" + base + " üssü " + exp + ") işleminin değeri kaçtır?",
+                        String.valueOf(ans), String.valueOf(base * exp), String.valueOf(ans + base), String.valueOf(ans * 2));
+            } else if (template == 2) {
+                int pct = (1 + random.nextInt(4)) * 20;
+                int whole = (2 + random.nextInt(9)) * 25;
+                int ans = (whole * pct) / 100;
+                return new QuestionItem("🚀 Enerji Yüzdesi:\n" + whole + " sayısının %" + pct + "'i kaçtır?",
+                        String.valueOf(ans), String.valueOf(ans + 10), String.valueOf(ans + 5), String.valueOf(Math.max(1, ans - 8)));
+            } else if (template == 3) {
+                int b = 6 + random.nextInt(15);
+                int h = 4 + random.nextInt(12);
+                if ((b * h) % 2 != 0) b++;
+                int area = (b * h) / 2;
+                return new QuestionItem("🚀 Taban uzunluğu " + b + " cm ve yüksekliği " + h + " cm olan üçgen kanadın alanı kaç cm²'dir?",
+                        String.valueOf(area), String.valueOf(b * h), String.valueOf(b + h), String.valueOf(area + 8));
+            } else if (template == 4) {
+                int n1 = 8 + random.nextInt(16);
+                int n2 = n1 + 4 + random.nextInt(12);
+                int n3 = n2 + 4 + random.nextInt(12);
+                int sum = n1 + n2 + n3;
+                int rem = sum % 3;
+                if (rem != 0) {
+                    n3 += (3 - rem);
+                    sum = n1 + n2 + n3;
+                }
+                int avg = sum / 3;
+                return new QuestionItem("🚀 Aritmetik Ortalama:\n" + n1 + ", " + n2 + " ve " + n3 + " sayılarının aritmetik ortalaması kaçtır?",
+                        String.valueOf(avg), String.valueOf(avg + 3), String.valueOf(avg - 2), String.valueOf(sum));
+            } else if (template == 5) {
+                int ratioA = 2 + random.nextInt(4);
+                int ratioB = ratioA + 1 + random.nextInt(4);
+                int scale = 4 + random.nextInt(9);
+                int realA = ratioA * scale;
+                int realB = ratioB * scale;
+                return new QuestionItem("🚀 Oran Görevi:\nİki gezegenin uydu sayıları oranı " + ratioA + "/" + ratioB + "'dir. Küçük gezegenin " + realA + " uydusu varsa büyüğün kaç uydusu vardır?",
+                        String.valueOf(realB), String.valueOf(realB + scale), String.valueOf(realA + ratioB), String.valueOf(realB - 3));
+            } else if (template == 6) {
+                int edge = 3 + random.nextInt(6);
+                int vol = edge * edge * edge;
+                return new QuestionItem("🚀 Bir ayrıtı " + edge + " m olan küp şeklindeki kargo modülünün hacmi kaç m³'tür?",
+                        String.valueOf(vol), String.valueOf(edge * edge * 6), String.valueOf(edge * 12), String.valueOf(vol + 9));
+            } else {
+                int speed = 50 + random.nextInt(7) * 10;
+                int hours = 2 + random.nextInt(5);
+                int dist = speed * hours;
+                return new QuestionItem("🚀 Saatte " + speed + " km sabit hızla giden keşif aracı " + hours + " saatte kaç km yol alır?",
+                        String.valueOf(dist), String.valueOf(dist + 40), String.valueOf(dist - 30), String.valueOf(speed + hours));
+            }
+        } else {
+            if (template == 0) {
+                int x = 3 + random.nextInt(15);
+                int k = 2 + random.nextInt(7);
+                int m = 5 + random.nextInt(18);
+                int rhs = k * x + m;
+                return new QuestionItem("🚀 Cebirsel Denklem:\n" + k + "x + " + m + " = " + rhs + " denkleminde x kaçtır?",
+                        String.valueOf(x), String.valueOf(x + 2), String.valueOf(Math.max(1, x - 1)), String.valueOf(x + 5));
+            } else if (template == 1) {
+                int r = 4 + random.nextInt(13);
+                int add = 3 + random.nextInt(12);
+                int sq = r * r;
+                int ans = r + add;
+                return new QuestionItem("🚀 Karekök Motoru:\n√" + sq + " + " + add + " işleminin sonucu kaçtır?",
+                        String.valueOf(ans), String.valueOf(ans + 3), String.valueOf(r * add), String.valueOf(ans - 2));
+            } else if (template == 2) {
+                int a = -(4 + random.nextInt(14));
+                int b = 6 + random.nextInt(20);
+                int ans = a + b;
+                return new QuestionItem("🚀 Tam Sayılarla İşlem:\n(" + a + ") + (+" + b + ") işleminin sonucu kaçtır?",
+                        String.valueOf(ans), String.valueOf(-ans), String.valueOf(b - a), String.valueOf(ans + 4));
+            } else if (template == 3) {
+                int[][] pyth = new int[][]{{3, 4, 5}, {6, 8, 10}, {5, 12, 13}, {8, 15, 17}, {9, 12, 15}};
+                int[] tri = pyth[random.nextInt(pyth.length)];
+                return new QuestionItem("🚀 Dik Üçgen Rotası:\nDik kenarları " + tri[0] + " br ve " + tri[1] + " br olan dik üçgenin hipotenüsü kaç birimdir?",
+                        String.valueOf(tri[2]), String.valueOf(tri[0] + tri[1]), String.valueOf(tri[2] + 2), String.valueOf(tri[2] - 1));
+            } else if (template == 4) {
+                int g = 3 + random.nextInt(7);
+                int a = g * 2;
+                int b = g * 3;
+                int lcm = g * 6;
+                return new QuestionItem("🚀 Ortak Katlar:\n" + a + " ve " + b + " sayılarının en küçük ortak katı (EKOK) kaçtır?",
+                        String.valueOf(lcm), String.valueOf(g), String.valueOf(a * b), String.valueOf(lcm + g));
+            } else if (template == 5) {
+                int sides = 5 + random.nextInt(6);
+                int sumAngles = (sides - 2) * 180;
+                return new QuestionItem("🚀 Çokgen Geometrisi:\n" + sides + " kenarlı bir çokgenin iç açılarının ölçüleri toplamı kaç derecedir?",
+                        sumAngles + "°", (sumAngles + 180) + "°", (sumAngles - 180) + "°", (sides * 180) + "°");
+            } else if (template == 6) {
+                int price = (4 + random.nextInt(12)) * 50;
+                int discPct = (1 + random.nextInt(3)) * 10;
+                int finalPrice = price - (price * discPct / 100);
+                return new QuestionItem("🚀 Etiket fiyatı " + price + " TL olan teleskoba %" + discPct + " indirim uygulanırsa indirimli fiyatı kaç TL olur?",
+                        String.valueOf(finalPrice), String.valueOf(price - discPct), String.valueOf(finalPrice + 25), String.valueOf(price * discPct / 100));
+            } else {
+                int x = 4 + random.nextInt(12);
+                int k = 3 + random.nextInt(5);
+                int sub = 4 + random.nextInt(10);
+                int rhs = k * x - sub;
+                return new QuestionItem("🚀 Koordinat Çözümü:\n" + k + "x - " + sub + " = " + rhs + " ise x kaçtır?",
+                        String.valueOf(x), String.valueOf(x + 3), String.valueOf(Math.max(1, x - 2)), String.valueOf(x + 1));
+            }
+        }
+    }
+
+    private static QuestionItem generateTurkishQuestion(int grade, Random random) {
+        int mode = random.nextInt(5);
+        if (mode == 0) {
+            int idx = random.nextInt(SYNONYM_PAIRS.length);
+            boolean reverse = random.nextBoolean();
+            String word = reverse ? SYNONYM_PAIRS[idx][1] : SYNONYM_PAIRS[idx][0];
+            String correct = reverse ? SYNONYM_PAIRS[idx][0] : SYNONYM_PAIRS[idx][1];
+            String w1 = SYNONYM_PAIRS[(idx + 3) % SYNONYM_PAIRS.length][1];
+            String w2 = SYNONYM_PAIRS[(idx + 7) % SYNONYM_PAIRS.length][0];
+            String w3 = SYNONYM_PAIRS[(idx + 11) % SYNONYM_PAIRS.length][1];
+            return new QuestionItem("🏰 '" + word + "' kelimesinin eş anlamlısı (anlamdaşı) olan kale parolası hangisidir?",
+                    correct, w1, w2, w3);
+        } else if (mode == 1) {
+            int idx = random.nextInt(ANTONYM_PAIRS.length);
+            boolean reverse = random.nextBoolean();
+            String word = reverse ? ANTONYM_PAIRS[idx][1] : ANTONYM_PAIRS[idx][0];
+            String correct = reverse ? ANTONYM_PAIRS[idx][0] : ANTONYM_PAIRS[idx][1];
+            String w1 = ANTONYM_PAIRS[(idx + 4) % ANTONYM_PAIRS.length][1];
+            String w2 = ANTONYM_PAIRS[(idx + 9) % ANTONYM_PAIRS.length][0];
+            String w3 = ANTONYM_PAIRS[(idx + 13) % ANTONYM_PAIRS.length][1];
+            return new QuestionItem("🏰 '" + word + "' kelimesinin zıt (karşıt) anlamlısı olan anahtar hangisidir?",
+                    correct, w1, w2, w3);
+        } else if (mode == 2) {
+            int idx = random.nextInt(PROVERBS_AND_IDIOMS.length);
+            String[] p = PROVERBS_AND_IDIOMS[idx];
+            String w1 = PROVERBS_AND_IDIOMS[(idx + 2) % PROVERBS_AND_IDIOMS.length][1];
+            String w2 = PROVERBS_AND_IDIOMS[(idx + 5) % PROVERBS_AND_IDIOMS.length][1];
+            String w3 = PROVERBS_AND_IDIOMS[(idx + 9) % PROVERBS_AND_IDIOMS.length][1];
+            return new QuestionItem("🏰 '" + p[0] + "' sözünün anlamı aşağıdakilerden hangisidir?",
+                    p[1], w1, w2, w3);
+        } else if (mode == 3) {
+            int idx = random.nextInt(PROVERBS_AND_IDIOMS.length);
+            String[] p = PROVERBS_AND_IDIOMS[idx];
+            String masked = p[0].replace(p[2], "____");
+            return new QuestionItem("🏰 Boşluğu Tamamla:\n'" + masked + "' sözünde boş bırakılan yere hangi kelime gelmelidir?",
+                    p[2], p[3], p[4], p[5]);
+        } else {
+            String[][] grammarBank = new String[][]{
+                    {"🏰 'Cumhuriyetimiz' kelimesinde toplam kaç hece vardır?", "5 hece", "4 hece", "6 hece", "3 hece"},
+                    {"🏰 'Bilgisayarlarımızdan' kelimesinde kaç ünlü (sesli) harf ve hece vardır?", "7 hece", "6 hece", "8 hece", "5 hece"},
+                    {"🏰 'Kitap - Kitabı' örneğinde görülen ses olayı (p ➔ b) aşağıdakilerden hangisidir?", "Ünsüz yumuşaması", "Ünlü düşmesi", "Ünsüz benzeşmesi", "Ulama"},
+                    {"🏰 'Ağız - Ağzı' ve 'Burun - Burnu' kelimelerinde görülen ses olayı nedir?", "Ünlü düşmesi (Hece düşmesi)", "Ünlü daralması", "Ünsüz türemesi", "Kaynaştırma"},
+                    {"🏰 'Eyvah, anahtarı içeride unuttum!' cümlesinin sonuna hangi noktalama işareti konur?", "Ünlem işareti (!)", "Soru işareti (?)", "Noktalı virgül (;)", "İki nokta (:)"},
+                    {"🏰 'Keskin bakışlarıyla etrafı süzdü.' cümlesinde 'keskin' kelimesi hangi anlamda kullanılmıştır?", "Mecaz anlam", "Gerçek anlam", "Terim anlam", "Zıt anlam"},
+                    {"🏰 'Bugün tiyatroda iki perdelik bir oyun izledik.' cümlesinde 'perde' kelimesi hangi anlamdadır?", "Terim anlam", "Mecaz anlam", "Eş sesli", "Deyim"},
+                    {"🏰 'Yüz' kelimesi hem sayı hem de çehre/surat anlamına geldiği için nasıl bir kelimedir?", "Eş sesli (Sesteş) kelime", "Eş anlamlı kelime", "Zıt anlamlı kelime", "Soyut kelime"},
+                    {"🏰 'Gözlükçü' kelimesinin kökü aşağıdakilerden hangisidir?", "Göz", "Gözlük", "Gözcü", "Görmek"},
+                    {"🏰 'Simitçi' kelimesinde 'simit-ci ➔ simitçi' dönüşümü hangi ses olayıdır?", "Ünsüz benzeşmesi (sertleşmesi)", "Ünsüz yumuşaması", "Ünlü düşmesi", "Ünlü türemesi"},
+                    {"🏰 'Hafta sonu kütüphaneye gidecek misin' cümlesinin sonuna hangi işaret gelmelidir?", "Soru işareti (?)", "Nokta (.)", "Ünlem (!)", "Üç nokta (...)"},
+                    {"🏰 Aşağıdaki kelimelerden hangisi büyük ünlü uyumuna uyar?", "Kelebek", "Elma", "Kalem", "Kardeş"}
+            };
+            String[] g = grammarBank[random.nextInt(grammarBank.length)];
+            return new QuestionItem(g[0], g[1], g[2], g[3], g[4]);
+        }
+    }
+
+    private static QuestionItem generateScienceQuestion(int grade, Random random) {
+        int mode = random.nextInt(4);
+        if (mode == 0) {
+            int speed = (2 + random.nextInt(9)) * 10;
+            int time = 2 + random.nextInt(7);
+            int dist = speed * time;
+            if (random.nextBoolean()) {
+                return new QuestionItem("🧪 Hareket Laboratuvarı:\nSabit " + speed + " m/s süratle hareket eden bir deney aracı " + time + " saniyede kaç metre yol alır?",
+                        dist + " metre", (dist + 30) + " metre", (speed + time) + " metre", (dist - 20) + " metre");
+            } else {
+                return new QuestionItem("🧪 Sürat Hesabı:\n" + dist + " metrelik pisti " + time + " saniyede tamamlayan robotun sürati kaç m/s'dir?",
+                        speed + " m/s", (speed + 10) + " m/s", (speed - 5) + " m/s", (dist - time) + " m/s");
+            }
+        } else if (mode == 1) {
+            if (grade >= 5 && random.nextBoolean()) {
+                int d = 2 + random.nextInt(7);
+                int vol = (2 + random.nextInt(8)) * 10;
+                int mass = d * vol;
+                return new QuestionItem("🧪 Madde Laboratuvarı:\nKütlesi " + mass + " gram, hacmi " + vol + " cm³ olan saf bir metalin yoğunluğu (özkütlesi) kaç g/cm³'tür?",
+                        d + " g/cm³", (d + 2) + " g/cm³", (mass - vol) + " g/cm³", (d * 2) + " g/cm³");
+            } else {
+                int perUnitN = 3 + random.nextInt(6);
+                int divs = 2 + random.nextInt(7);
+                int force = perUnitN * divs;
+                return new QuestionItem("🧪 Kuvvet Deneyi:\nHer 1 bölmesi " + perUnitN + " Newton (N) gösteren bir dinamometrede yay " + divs + " bölme uzadığına göre uygulanan kuvvet kaç N'dur?",
+                        force + " N", (force + perUnitN) + " N", (perUnitN + divs) + " N", Math.max(1, force - 4) + " N");
+            }
+        } else if (mode == 2 && grade >= 5) {
+            int idx = random.nextInt(SCIENCE_ELEMENTS.length);
+            boolean askSymbol = random.nextBoolean();
+            String name = SCIENCE_ELEMENTS[idx][0];
+            String sym = SCIENCE_ELEMENTS[idx][1];
+            if (askSymbol) {
+                return new QuestionItem("🧪 Periyodik Tablo Görevi:\n'" + name + "' elementinin sembolü aşağıdakilerden hangisidir?",
+                        sym,
+                        SCIENCE_ELEMENTS[(idx + 2) % SCIENCE_ELEMENTS.length][1],
+                        SCIENCE_ELEMENTS[(idx + 5) % SCIENCE_ELEMENTS.length][1],
+                        SCIENCE_ELEMENTS[(idx + 9) % SCIENCE_ELEMENTS.length][1]);
+            } else {
+                return new QuestionItem("🧪 Periyodik Tablo Görevi:\nSembolü '" + sym + "' olan element aşağıdakilerden hangisidir?",
+                        name,
+                        SCIENCE_ELEMENTS[(idx + 3) % SCIENCE_ELEMENTS.length][0],
+                        SCIENCE_ELEMENTS[(idx + 6) % SCIENCE_ELEMENTS.length][0],
+                        SCIENCE_ELEMENTS[(idx + 10) % SCIENCE_ELEMENTS.length][0]);
+            }
+        } else {
+            String[] f = SCIENCE_FACTS[random.nextInt(SCIENCE_FACTS.length)];
+            return new QuestionItem("🧪 " + f[0], f[1], f[2], f[3], f[4]);
+        }
+    }
+
+    private static QuestionItem generateSocialStudiesQuestion(int grade, Random random) {
+        int mode = random.nextInt(4);
+        if (mode == 0) {
+            int[] years = new int[]{1071, 1299, 1453, 1517, 1789, 1876, 1919, 1923, 1938, 2024};
+            int y = years[random.nextInt(years.length)];
+            int century = (y / 100) + 1;
+            return new QuestionItem("🧭 Zaman Çizelgesi Görevi:\nTarihteki " + y + " yılı kaçıncı yüzyıl içerisinde yer alır?",
+                    century + ". Yüzyıl", (century - 1) + ". Yüzyıl", (century + 1) + ". Yüzyıl", (century - 2) + ". Yüzyıl");
+        } else if (mode == 1) {
+            if (random.nextBoolean()) {
+                int m1 = 26 + random.nextInt(8);
+                int m2 = m1 + 5 + random.nextInt(12);
+                int diffMin = (m2 - m1) * 4;
+                return new QuestionItem("🧭 Coğrafya Koordinatı:\n" + m1 + "° Doğu meridyeni ile " + m2 + "° Doğu meridyeni arasındaki yerel saat farkı kaç dakikadır?",
+                        diffMin + " dakika", (diffMin + 8) + " dakika", (m2 - m1) + " dakika", (diffMin - 4) + " dakika");
+            } else {
+                int cm = 3 + random.nextInt(8);
+                int scaleKmPerCm = (1 + random.nextInt(5)) * 10;
+                int realKm = cm * scaleKmPerCm;
+                return new QuestionItem("🧭 Harita Ölçek Görevi:\n1 cm'nin gerçekte " + scaleKmPerCm + " km'yi gösterdiği bir haritada " + cm + " cm olarak ölçülen iki şehir arası gerçekte kaç km'dir?",
+                        realKm + " km", (realKm + scaleKmPerCm) + " km", (cm + scaleKmPerCm) + " km", Math.max(10, realKm - 15) + " km");
+            }
+        } else {
+            String[] g = GEOGRAPHY_HISTORY_FACTS[random.nextInt(GEOGRAPHY_HISTORY_FACTS.length)];
+            return new QuestionItem("🧭 " + g[0], g[1], g[2], g[3], g[4]);
+        }
+    }
+
+    private static QuestionItem generateEnglishQuestion(int grade, Random random) {
+        int mode = random.nextInt(4);
+        if (mode == 0) {
+            int idx = random.nextInt(ENGLISH_VOCAB.length);
+            boolean enToTr = random.nextBoolean();
+            String en = ENGLISH_VOCAB[idx][0];
+            String tr = ENGLISH_VOCAB[idx][1];
+            if (enToTr) {
+                return new QuestionItem("🌍 İngilizce '" + en + "' kelimesinin Türkçe karşılığı nedir?",
+                        tr,
+                        ENGLISH_VOCAB[(idx + 4) % ENGLISH_VOCAB.length][1],
+                        ENGLISH_VOCAB[(idx + 9) % ENGLISH_VOCAB.length][1],
+                        ENGLISH_VOCAB[(idx + 15) % ENGLISH_VOCAB.length][1]);
+            } else {
+                return new QuestionItem("🌍 Türkçe '" + tr + "' kelimesinin İngilizce karşılığı hangisidir?",
+                        en,
+                        ENGLISH_VOCAB[(idx + 5) % ENGLISH_VOCAB.length][0],
+                        ENGLISH_VOCAB[(idx + 11) % ENGLISH_VOCAB.length][0],
+                        ENGLISH_VOCAB[(idx + 17) % ENGLISH_VOCAB.length][0]);
+            }
+        } else if (mode == 1) {
+            int idx = random.nextInt(ENGLISH_OPPOSITES.length);
+            boolean rev = random.nextBoolean();
+            String w = rev ? ENGLISH_OPPOSITES[idx][1] : ENGLISH_OPPOSITES[idx][0];
+            String ans = rev ? ENGLISH_OPPOSITES[idx][0] : ENGLISH_OPPOSITES[idx][1];
+            return new QuestionItem("🌍 What is the opposite (zıt anlamlısı) of '" + w + "'?",
+                    ans,
+                    ENGLISH_OPPOSITES[(idx + 3) % ENGLISH_OPPOSITES.length][1],
+                    ENGLISH_OPPOSITES[(idx + 6) % ENGLISH_OPPOSITES.length][0],
+                    ENGLISH_OPPOSITES[(idx + 9) % ENGLISH_OPPOSITES.length][1]);
+        } else if (mode == 2) {
+            String[] tensNames = new String[]{"Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"};
+            String[] onesNames = new String[]{"", "-one", "-two", "-three", "-four", "-five", "-six", "-seven", "-eight", "-nine"};
+            int tIdx = random.nextInt(tensNames.length);
+            int oIdx = 1 + random.nextInt(9);
+            int numberVal = (tIdx + 2) * 10 + oIdx;
+            String engWord = tensNames[tIdx] + onesNames[oIdx];
+            return new QuestionItem("🌍 İngilizce '" + engWord + "' ifadesi hangi sayıyı gösterir?",
+                    String.valueOf(numberVal),
+                    String.valueOf(oIdx * 10 + (tIdx + 2)),
+                    String.valueOf(numberVal + 10),
+                    String.valueOf(numberVal - 1));
+        } else {
+            String[][] sentences = new String[][]{
+                    {"🌍 'I ___ a student and she ___ a teacher.' boşluklara sırasıyla ne gelmelidir?", "am / is", "is / are", "are / am", "am / are"},
+                    {"🌍 'Birds ___ fly, but fish ___ walk.' boşluklara ne gelmelidir?", "can / can't", "can't / can", "are / is", "have / has"},
+                    {"🌍 'What time is it? (08:30)' sorusunun doğru cevabı hangisidir?", "It is half past eight", "It is quarter past eight", "It is eight o'clock", "It is half past nine"},
+                    {"🌍 'An elephant is ___ than a mouse.' cümlesinde boşluğa hangisi gelir?", "bigger", "smaller", "shorter", "slower"},
+                    {"🌍 'Where do you borrow books?' sorusunun cevabı hangi mekândır?", "At the library", "At the bakery", "At the hospital", "At the cinema"},
+                    {"🌍 'My mother's brother is my ___.' cümlesini hangi kelime tamamlar?", "Uncle", "Aunt", "Cousin", "Grandfather"},
+                    {"🌍 'It is raining outside! Take your ___.' cümlesinde boşluğa ne gelir?", "umbrella", "sunglasses", "bicycle", "notebook"},
+                    {"🌍 'How many days are there in a week?' sorusunun cevabı nedir?", "Seven (7)", "Five (5)", "Twelve (12)", "Thirty (30)"}
+            };
+            String[] s = sentences[random.nextInt(sentences.length)];
+            return new QuestionItem(s[0], s[1], s[2], s[3], s[4]);
+        }
+    }
+
+    private static QuestionItem generateValuesQuestion(int grade, Random random) {
+        if (random.nextInt(4) == 0) {
+            int savedPerDay = 5 + random.nextInt(16);
+            int days = 4 + random.nextInt(7);
+            int total = savedPerDay * days;
+            return new QuestionItem("🕊️ Paylaşım Kumbarası:\nHer gün kumbarasına " + savedPerDay + " TL koyan bir öğrenci " + days + " gün sonunda ihtiyaç sahipleriyle paylaşmak için kaç TL biriktirmiş olur?",
+                    total + " TL", (total + 10) + " TL", (savedPerDay + days) + " TL", (total - 5) + " TL");
+        }
+        String[][] bank = new String[][]{
+                {"🕊️ Bir arkadaşımız bize yardım ettiğinde hangi nezaket sözünü söyleriz?", "Teşekkür ederim", "Acele et", "Bana ne", "Sonra görüşürüz"},
+                {"🕊️ Kendimize yapılmasını istemediğimiz bir davranışı başkasına yapmamaya ne denir?", "Empati (Diğerkâmlık)", "Bencillik", "Acelecilik", "Unutkanlık"},
+                {"🕊️ Verdiğimiz sözü zamanında yerine getirmek hangi erdemin göstergesidir?", "Güvenilirlik ve dürüstlük", "Kararsızlık", "Acelecilik", "Kıskançlık"},
+                {"🕊️ İstemeden bir arkadaşımızı üzdüğümüzde ilk yapmamız gereken güzel davranış nedir?", "İçtenlikle özür dilemek", "Konuyu değiştirmek", "Oradan uzaklaşmak", "Başkasını suçlamak"},
+                {"🕊️ Yaşlılara, hamilelere ve engellilere toplu taşımada yer vermek hangi değerimizdir?", "Saygı ve duyarlılık", "Gösteriş", "Zorunluluk", "Yarışma"},
+                {"🕊️ Başkalarının sırrını korumak ve emanete sahip çıkmak neyin gereğidir?", "Emanet bilinci ve güven", "Meraklılık", "Unutkanlık", "Sabırsızlık"},
+                {"🕊️ Bir hedefe ulaşırken zorluklar karşısında pes etmeden gayret göstermeye ne denir?", "Sabır ve azim", "İnatçılık", "Tembellik", "Acelecilik"},
+                {"🕊️ Misafire ikramda bulunmak ve güler yüz göstermek kültürümüzde ne olarak adlandırılır?", "Misafirperverlik", "Savurganlık", "Meraklılık", "Alışveriş"},
+                {"🕊️ Kütüphane, sınıf ve park gibi ortak alanları temiz bırakmak hangi erdemdir?", "Sorumluluk ve kul hakkına saygı", "Korku", "Yalnızlık", "Yarışma"},
+                {"🕊️ Farklı görüş ve düşüncelere saygıyla yaklaşabilme erdemine ne ad verilir?", "Hoşgörü (Tolerans)", "Önyargı", "Bencillik", "İnatçılık"},
+                {"🕊️ Yemekten önce ve sonra sahip olduğumuz nimetlerin kıymetini bilmeye ne denir?", "Şükür ve kanaat", "İsraf", "Acele", "Gösteriş"},
+                {"🕊️ Ekmeği, suyu ve elektriği gereksiz yere harcamamaya ne ad verilir?", "Tasarruf (İsraftan kaçınmak)", "Cimrilik", "Yorgunluk", "Zenginlik"}
+        };
+        String[] pick = bank[random.nextInt(bank.length)];
+        return new QuestionItem(pick[0], pick[1], pick[2], pick[3], pick[4]);
+    }
+
+    private static QuestionItem generateSafetyQuestion(int grade, Random random) {
+        if (random.nextInt(3) == 0) {
+            int speed = (4 + random.nextInt(8)) * 10;
+            int safeDist = speed / 2;
+            return new QuestionItem("🏎️ Güvenli Takip Mesafesi Kuralı:\nSaatte " + speed + " km hızla giden bir aracın öndeki araçla bırakması gereken güvenli takip mesafesi en az kaç metredir? (Hızın yarısı)",
+                    safeDist + " metre", speed + " metre", (safeDist + 15) + " metre", (safeDist / 2) + " metre");
+        }
+        String[][] bank = new String[][]{
+                {"🏎️ Yaya geçidinde yayalar için hangi ışık yandığında güvenle karşıya geçilir?", "Yeşil ışık", "Kırmızı ışık", "Sarı ışık", "Mavi ışık"},
+                {"🏎️ Otomobile bindiğimizde güvenliğimiz için ilk yapmamız gereken nedir?", "Emniyet kemerini takmak", "Camı açmak", "Radyoyu açmak", "Ayakta durmak"},
+                {"🏎️ Bisiklet, paten ve kaykay kullanırken başımızı korumak için ne takmalıyız?", "Kask", "Şapka", "Kulaklık", "Atkı"},
+                {"🏎️ Türkiye'de ambulans, itfaiye, polis ve AFAD için aranan tek ortak acil numara kaçtır?", "112", "155", "182", "114"},
+                {"🏎️ Üçgen şeklindeki kırmızı çerçeveli trafik levhaları sürücü ve yayalara ne bildirir?", "Tehlike uyarı işaretidir, dikkatli olunmalıdır", "Park yeri olduğunu", "Otoyol bittiğini", "Hastane olduğunu"},
+                {"🏎️ Mavi zeminli kare veya dikdörtgen trafik levhaları ne tür işaretlerdir?", "Bilgi işaretleri", "Yasaklama işaretleri", "Tehlike işaretleri", "Durma işaretleri"},
+                {"🏎️ Deprem sırasında bina içindeysek sağlam bir eşyanın yanında hangi hareketi yapmalıyız?", "Çök - Kapan - Tutun", "Asansöre binmek", "Balkondan atlamak", "Merdivenlere koşmak"},
+                {"🏎️ Okul servisinden indiğimizde hemen servisin önünden veya arkasından koşarak geçmeli miyiz?", "Hayır, servis uzaklaşana kadar kaldırımda beklemeliyiz", "Evet, hemen geçmeliyiz", "Fark etmez", "Gözümüz kapalı geçmeliyiz"},
+                {"🏎️ Yaya kaldırımı bulunmayan yollarda yürürken yolun hangi tarafından yürümeliyiz?", "Karşıdan gelen araçları görebilmek için sol kenardan", "Yolun tam ortasından", "Sağ şeridin ortasından", "Koşarak"},
+                {"🏎️ Küçük bir yanık oluştuğunda ilk yardım olarak yanık bölgeye ilk ne uygulanmalıdır?", "10-15 dakika soğuk/normal musluk suyu tutulmalıdır", "Diş macunu sürülmelidir", "Yoğurt sürülmelidir", "Tuz basılmalıdır"},
+                {"🏎️ Burun kanaması durumunda doğru ilk yardım uygulaması nasıldır?", "Baş hafifçe öne eğilir ve burun kanatları 5 dk sıkılır", "Baş geriye doğru yatırılır", "Sıcak su içilir", "Koşulur"},
+                {"🏎️ Gece yürüyüşlerinde veya bisiklet sürerken sürücülerin bizi fark etmesi için ne kullanmalıyız?", "Reflektörlü (ışık yansıtıcı) giysi veya yelek", "Koyu siyah kıyafet", "Şemsiye", "Güneş gözlüğü"}
+        };
+        String[] pick = bank[random.nextInt(bank.length)];
+        return new QuestionItem(pick[0], pick[1], pick[2], pick[3], pick[4]);
+    }
+
+    private static QuestionItem generateCivicsQuestion(int grade, Random random) {
+        if (random.nextInt(3) == 0) {
+            int tons = 2 + random.nextInt(8);
+            int trees = tons * 17;
+            return new QuestionItem("⚖️ Doğa ve Geri Dönüşüm Görevi:\n1 ton atık kağıdın geri dönüştürülmesi 17 ağacı kesilmekten kurtarmaktadır. Okulumuzda " + tons + " ton kağıt geri dönüştürülürse kaç ağaç kurtulur?",
+                    trees + " ağaç", (trees + 10) + " ağaç", (tons + 17) + " ağaç", (trees - 7) + " ağaç");
+        }
+        String[][] bank = new String[][]{
+                {"⚖️ Birleşmiş Milletler sözleşmesine göre 18 yaşına kadar her bireyin eğitim, sağlık ve oyun hakkına ne denir?", "Çocuk Hakları", "Yarışma Kuralları", "Nöbet Çizelgesi", "Kulüp Tüzüğü"},
+                {"⚖️ Bir kişinin özgürlüğünün sınırı nerede biter?", "Başkasının hak ve özgürlüğünün başladığı yerde", "Hiçbir yerde bitmez", "Sadece okulda biter", "Akşam saatlerinde"},
+                {"⚖️ Sınıf başkanlığı seçiminde her öğrencinin eşit oy hakkına sahip olması hangi kavramla ilgilidir?", "Demokrasi ve eşitlik", "Ayrıcalık", "Zorlama", "Rastlantı"},
+                {"⚖️ İnternet ortamında şifrelerimizi ve kişisel bilgilerimizi yabancılarla paylaşmamak neyin gereğidir?", "Dijital güvenlik ve mahremiyet", "Oyun kuralı", "İnternet hızı", "Bilgisayar bakımı"},
+                {"⚖️ Bir anlaşmazlık yaşadığımızda sorunu çözmenin en adil ve barışçıl yolu nedir?", "İletişim kurarak ve uzlaşarak çözmek", "Bağırarak kabul ettirmek", "Küserek konuşmamak", "Eşyaları fırlatmak"},
+                {"⚖️ Doğayı, ormanları ve su kaynaklarını korumak kimin sorumluluğudur?", "Tüm insanların ortak vatandaşlık sorumluluğudur", "Sadece belediyenin", "Sadece yetişkinlerin", "Hiç kimsenin"},
+                {"⚖️ Grup çalışmalarında başarıya ulaşmanın en güzel yolu aşağıdakilerden hangisidir?", "Görev paylaşımı ve iş birliği yapmak", "Her işi tek bir kişiye yüklemek", "Başkalarını dinlememek", "Çalışmayı yarıda bırakmak"},
+                {"⚖️ İnsanların sırf dış görünüşü veya kökeni yüzünden peşin hükümle değerlendirilmesine ne denir?", "Önyargı (Kalıp yargı)", "Empati", "Hoşgörü", "Dayanışma"},
+                {"⚖️ Haberleşme ve özel hayatın gizliliği hakkı ne ile güvence altına alınmıştır?", "Anayasa ve yasalarla", "Oyun kurallarıyla", "Komşu kararıyla", "Hava durumuyla"},
+                {"⚖️ Alışveriş yaptıktan sonra fiş veya fatura almak hangi açıdan önemlidir?", "Tüketici haklarımızı korumak ve vergi bilinci için", "Çantayı doldurmak için", "Kağıt biriktirmek için", "Hiçbir önemi yoktur"}
+        };
+        String[] pick = bank[random.nextInt(bank.length)];
+        return new QuestionItem(pick[0], pick[1], pick[2], pick[3], pick[4]);
     }
 }
