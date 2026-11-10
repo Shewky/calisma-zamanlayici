@@ -215,7 +215,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:gravity="center"
-                    android:text="🟢 Seviye 1 (Isınma Turu) • Bildikçe zorluk ve ödül artar!"
+                    android:text=""
                     android:textColor="@color/text_muted"
                     android:textSize="14sp"
                     android:textStyle="bold" />

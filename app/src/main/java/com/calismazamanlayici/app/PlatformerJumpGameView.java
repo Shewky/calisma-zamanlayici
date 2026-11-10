@@ -6,6 +6,7 @@ import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
 import android.os.SystemClock;
+import android.util.DisplayMetrics;
 import android.view.MotionEvent;
 import android.view.View;
 
@@ -15,11 +16,11 @@ import java.util.List;
 import java.util.Random;
 
 /**
- * Tam Ekran (Full-Screen), 3-2-1-BAŞLA! Geri Sayımlı ve 6 Farklı Parkurlu
- * "Süper Yıldız Zıplama Macerası" Oyunu:
- * - Komple tam ekran çalışır; dikey alanı çok katlı platformlar, trambolinler ve gökyüzü yollarıyla kullanır.
- * - Her bölüme/parkura başlarken ekranda büyük, animasyonlu "3 - 2 - 1 - BAŞLA!" geri sayımı yapılır.
- * - Canlar (3 Kalp) bittiğinde oyun gerçekten sona erer.
+ * Cep Telefonu Ekranı İçin Tam Ölçeklendirilmiş (DP / SP Uyumlu), Tam Ekran,
+ * 3-2-1-BAŞLA! Geri Sayımlı ve 6 Farklı Parkurlu "Süper Yıldız Zıplama Macerası":
+ * - Tüm yazılar, karakter, yıldızlar, platformlar, engeller ve fizik hızları telefon ekran yoğunluğuna (dp/sp)
+ *   göre ölçeklendirilir; hiçbir öğe küçük kalmaz.
+ * - Her bölüme başlarken ekranda büyük "3 - 2 - 1 - BAŞLA!" geri sayımı yapılır.
  */
 public class PlatformerJumpGameView extends View {
 
@@ -37,10 +38,13 @@ public class PlatformerJumpGameView extends View {
     private final Random random = new Random();
     private final JumpGameListener listener;
 
+    private final float dp;
+    private final float sp;
+
     private boolean running = false;
     private boolean gameOver = false;
 
-    // Her bölüme başlarken 3-2-1-BAŞLA geri sayımı
+    // 3-2-1-BAŞLA geri sayımı
     private boolean inCountdown = false;
     private long countdownStartRealtimeMs = 0L;
     private int lastAnnouncedCountdownSecond = -1;
@@ -53,23 +57,23 @@ public class PlatformerJumpGameView extends View {
     private int magnetFrames = 0;
     private int invulnerableFrames = 0;
 
-    // Parkur ilerleme mesafesi
-    private float parkourDistance = 0f;
-    private static final float PARKOUR_TARGET_DISTANCE = 1900f;
+    // Parkur ilerleme mesafesi (dp ölçekli)
+    private float parkourDistanceDp = 0f;
+    private static final float PARKOUR_TARGET_DISTANCE_DP = 950f;
     private boolean finishGateSpawned = false;
     private float finishGateX = -500f;
 
-    // Karakter fizik değişkenleri ve kuyruk izi (Trail)
-    private float playerX = 150f;
-    private float playerY = 300f;
+    // Karakter fizik değişkenleri (dp ölçekli)
+    private float playerX;
+    private float playerY;
     private float playerVy = 0f;
-    private final float playerRadius = 28f;
+    private final float playerRadius;
     private int jumpCount = 0;
-    private float groundY = 600f;
-    private float scrollSpeed = 7.4f;
+    private float groundY;
+    private float scrollSpeed;
     private float animTick = 0f;
-    private final float[] trailX = new float[8];
-    private final float[] trailY = new float[8];
+    private final float[] trailX = new float[7];
+    private final float[] trailY = new float[7];
 
     private static class Platform {
         float x;
@@ -96,14 +100,14 @@ public class PlatformerJumpGameView extends View {
         float baseY;
         float width;
         float height;
-        int type; // 0: Diken, 1: Salınımlı Uçan Dron/Ateş Topu, 2: Yuvarlanan Kaya, 3: Üst Sarkıt
+        int type; // 0: Diken, 1: Salınımlı Dron/Ateş Topu, 2: Yuvarlanan Kaya, 3: Üst Sarkıt
         float phase;
     }
 
     private static class Collectible {
         float x;
         float y;
-        int type; // 0: Altın Yıldız (+15), 1: Süper Elmas (+30), 2: Kalkan (🛡️), 3: Can Kalbi (❤️), 4: Yıldız Mıknatısı (🧲)
+        int type; // 0: Altın Yıldız (+15), 1: Süper Elmas (+30), 2: Kalkan (🛡️), 3: Can Kalbi (❤️), 4: Mıknatıs (🧲)
     }
 
     private static class AmbientParticle {
@@ -143,12 +147,12 @@ public class PlatformerJumpGameView extends View {
     };
 
     private static final int[] SKY_COLORS = new int[]{
-            0xFF4FC3F7, // 1: Zümrüt Orman Canlı Gökyüzü
-            0xFF29B6F6, // 2: Bulut Adaları Gökyüzü
-            0xFF2D1612, // 3: Lav Mağarası Koyu Volkan
-            0xFFB3E5FC, // 4: Kristal Buzul Kutup Gökyüzü
-            0xFF0B132B, // 5: Uzay İstasyonu Derin Uzay
-            0xFFFFE082  // 6: Altın Tapınak Gün Batımı
+            0xFF4FC3F7, // 1: Zümrüt Orman
+            0xFF29B6F6, // 2: Bulut Adaları
+            0xFF2D1612, // 3: Lav Mağarası
+            0xFFB3E5FC, // 4: Kristal Buzul
+            0xFF0B132B, // 5: Uzay İstasyonu
+            0xFFFFE082  // 6: Altın Tapınak
     };
 
     private static final int[] GROUND_COLORS = new int[]{
@@ -172,6 +176,15 @@ public class PlatformerJumpGameView extends View {
     public PlatformerJumpGameView(Context context, JumpGameListener listener) {
         super(context);
         this.listener = listener;
+        DisplayMetrics dm = context.getResources().getDisplayMetrics();
+        this.dp = dm.density;
+        this.sp = dm.scaledDensity;
+        this.playerRadius = 23f * dp; // 46dp çapında büyük, net karakter!
+        this.playerX = 72f * dp;
+        this.groundY = 480f * dp;
+        this.playerY = this.groundY - this.playerRadius;
+        this.scrollSpeed = 3.2f * dp;
+
         for (int i = 0; i < 6; i++) {
             parkourTabRects[i] = new RectF();
         }
@@ -201,17 +214,16 @@ public class PlatformerJumpGameView extends View {
         invalidate();
     }
 
-    /**
-     * Yeni bölüme/parkura geçerken sahneyi kurar ve 3-2-1-BAŞLA! geri sayımını başlatır.
-     */
     private void loadParkourStage(int targetStage) {
         this.stage = ((targetStage - 1) % 6) + 1;
-        this.parkourDistance = 0f;
+        this.parkourDistanceDp = 0f;
         this.finishGateSpawned = false;
-        this.finishGateX = -500f;
+        this.finishGateX = -500f * dp;
         this.jumpCount = 0;
         this.playerVy = 0f;
-        this.playerY = (groundY > 200f) ? (groundY - playerRadius) : 340f;
+        float gY = (getHeight() > 200) ? (getHeight() * 0.80f) : (460f * dp);
+        this.groundY = gY;
+        this.playerY = gY - playerRadius;
         this.invulnerableFrames = 45;
 
         for (int i = 0; i < trailX.length; i++) {
@@ -226,20 +238,21 @@ public class PlatformerJumpGameView extends View {
         ambientParticles.clear();
         sparkles.clear();
 
-        for (int i = 0; i < 18; i++) {
+        int w = Math.max(getWidth(), (int) (360 * dp));
+        int h = Math.max(getHeight(), (int) (640 * dp));
+        for (int i = 0; i < 16; i++) {
             AmbientParticle ap = new AmbientParticle();
-            ap.x = random.nextInt(1080);
-            ap.y = 130f + random.nextInt(700);
-            ap.size = 4f + random.nextFloat() * 7f;
-            ap.vx = -(1.5f + random.nextFloat() * 2.5f);
-            ap.vy = (stage == 3) ? -(0.8f + random.nextFloat() * 1.5f) : (0.6f + random.nextFloat() * 1.4f);
+            ap.x = random.nextInt(w);
+            ap.y = 110f * dp + random.nextInt(Math.max(100, (int) (h * 0.65f)));
+            ap.size = (3.5f + random.nextFloat() * 4.5f) * dp;
+            ap.vx = -(0.8f + random.nextFloat() * 1.4f) * dp;
+            ap.vy = ((stage == 3) ? -(0.5f + random.nextFloat() * 0.9f) : (0.4f + random.nextFloat() * 0.9f)) * dp;
             ambientParticles.add(ap);
         }
 
-        spawnParkourChunk(460f);
-        spawnParkourChunk(920f);
+        spawnParkourChunk(220f * dp);
+        spawnParkourChunk(520f * dp);
 
-        // 3 - 2 - 1 - BAŞLA! Geri Sayımını Başlat
         inCountdown = true;
         countdownStartRealtimeMs = SystemClock.elapsedRealtime();
         lastAnnouncedCountdownSecond = -1;
@@ -271,7 +284,6 @@ public class PlatformerJumpGameView extends View {
             return;
         }
         if (inCountdown) {
-            // Geri sayım bitmeden zıplama başlamaz
             return;
         }
         if (!running) {
@@ -280,7 +292,7 @@ public class PlatformerJumpGameView extends View {
         }
         if (jumpCount < 2) {
             float boost = (stage == 5) ? 1.14f : (stage == 2 ? 1.07f : 1.0f);
-            playerVy = ((jumpCount == 0) ? -21.5f : -18.5f) * boost;
+            playerVy = ((jumpCount == 0) ? (-9.8f * dp) : (-8.6f * dp)) * boost;
             jumpCount++;
             spawnSparkles(playerX, playerY + playerRadius, 0xFFFFFFFF, 10);
             if (listener != null) {
@@ -295,7 +307,6 @@ public class PlatformerJumpGameView extends View {
             float tx = event.getX();
             float ty = event.getY();
 
-            // 1. Sol üst Çıkış / Lobi butonu
             if (btnExitRect.contains(tx, ty)) {
                 if (listener != null) {
                     listener.onExitRequested();
@@ -303,7 +314,6 @@ public class PlatformerJumpGameView extends View {
                 return true;
             }
 
-            // 2. Üst Parkur Seçme Sekmeleri (P1..P6)
             for (int i = 0; i < 6; i++) {
                 if (parkourTabRects[i].contains(tx, ty)) {
                     selectParkour(i + 1);
@@ -311,7 +321,6 @@ public class PlatformerJumpGameView extends View {
                 }
             }
 
-            // 3. Oyun Bitti ekranı butonları
             if (gameOver) {
                 if (btnNextParkourRect.contains(tx, ty)) {
                     selectParkour((stage % 6) + 1);
@@ -329,7 +338,6 @@ public class PlatformerJumpGameView extends View {
                 return true;
             }
 
-            // 4. Normal oyunda zıpla
             triggerJump();
             return true;
         }
@@ -342,7 +350,7 @@ public class PlatformerJumpGameView extends View {
             s.x = cx;
             s.y = cy;
             double ang = random.nextDouble() * Math.PI * 2;
-            float spd = 3f + random.nextFloat() * 7.5f;
+            float spd = (1.8f + random.nextFloat() * 4.2f) * dp;
             s.vx = (float) Math.cos(ang) * spd;
             s.vy = (float) Math.sin(ang) * spd;
             s.color = color;
@@ -363,244 +371,246 @@ public class PlatformerJumpGameView extends View {
 
     private void spawnParkourChunk(float startX) {
         if (finishGateSpawned) return;
-        float gY = (groundY > 220f) ? groundY : 620f;
+        float gY = (groundY > 150f * dp) ? groundY : (460f * dp);
         int pattern = random.nextInt(3);
 
+        float platH = 18f * dp;
+
         if (stage == 1) {
-            // Parkur 1: Zümrüt Orman Köprüleri (3 Katlı Ağaç Ev Platformları + Mantar Trambolin + Nehir)
+            // Parkur 1: Zümrüt Orman Köprüleri
             if (pattern == 0) {
                 GroundPit pit = new GroundPit();
-                pit.x = startX + 40f;
-                pit.width = 145f;
+                pit.x = startX + 25f * dp;
+                pit.width = 95f * dp;
                 pit.pitType = 0;
                 pits.add(pit);
 
                 Platform pLow = new Platform();
-                pLow.x = startX + 15f;
-                pLow.baseY = gY - 110f;
+                pLow.x = startX + 10f * dp;
+                pLow.baseY = gY - 82f * dp;
                 pLow.y = pLow.baseY;
-                pLow.width = 180f;
-                pLow.height = 22f;
+                pLow.width = 125f * dp;
+                pLow.height = platH;
                 platforms.add(pLow);
 
                 Platform pHigh = new Platform();
-                pHigh.x = startX + 190f;
-                pHigh.baseY = gY - 220f;
+                pHigh.x = startX + 145f * dp;
+                pHigh.baseY = gY - 160f * dp;
                 pHigh.y = pHigh.baseY;
-                pHigh.width = 150f;
-                pHigh.height = 22f;
+                pHigh.width = 115f * dp;
+                pHigh.height = platH;
                 platforms.add(pHigh);
 
-                spawnStarArc(startX + 40f, pLow.baseY - 48f, 3, 48f, 0);
-                spawnStarArc(startX + 205f, pHigh.baseY - 48f, 3, 45f, 1);
+                spawnStarArc(startX + 25f * dp, pLow.baseY - 36f * dp, 3, 36f * dp, 0);
+                spawnStarArc(startX + 160f * dp, pHigh.baseY - 36f * dp, 3, 34f * dp, 1);
             } else if (pattern == 1) {
                 Platform p1 = new Platform();
                 p1.x = startX;
-                p1.baseY = gY - 95f;
+                p1.baseY = gY - 75f * dp;
                 p1.y = p1.baseY;
-                p1.width = 140f;
-                p1.height = 22f;
+                p1.width = 110f * dp;
+                p1.height = platH;
                 p1.hasTrampoline = true;
-                p1.trampolineOffsetX = 48f;
+                p1.trampolineOffsetX = 32f * dp;
                 platforms.add(p1);
 
                 Platform pSky = new Platform();
-                pSky.x = startX + 165f;
-                pSky.baseY = gY - 260f;
+                pSky.x = startX + 130f * dp;
+                pSky.baseY = gY - 190f * dp;
                 pSky.y = pSky.baseY;
-                pSky.width = 175f;
-                pSky.height = 22f;
+                pSky.width = 130f * dp;
+                pSky.height = platH;
                 platforms.add(pSky);
 
-                spawnStarArc(startX + 185f, pSky.baseY - 50f, 4, 42f, 4); // Mıknatıs ödüllü üst rota!
+                spawnStarArc(startX + 145f * dp, pSky.baseY - 38f * dp, 3, 36f * dp, 4);
             } else {
                 Obstacle ob = new Obstacle();
-                ob.x = startX + 75f;
-                ob.width = 50f;
-                ob.height = 60f;
+                ob.x = startX + 55f * dp;
+                ob.width = 38f * dp;
+                ob.height = 46f * dp;
                 ob.baseY = gY - ob.height;
                 ob.y = ob.baseY;
                 ob.type = 2;
                 obstacles.add(ob);
-                spawnStarArc(startX + 50f, gY - 135f, 3, 45f, 0);
+                spawnStarArc(startX + 35f * dp, gY - 105f * dp, 3, 36f * dp, 0);
             }
         } else if (stage == 2) {
-            // Parkur 2: Kayan Bulut Adaları (Hem Dikey Hem Yatay Hareketli Bulutlar)
+            // Parkur 2: Kayan Bulut Adaları
             GroundPit pit = new GroundPit();
-            pit.x = startX + 30f;
-            pit.width = 180f;
+            pit.x = startX + 20f * dp;
+            pit.width = 120f * dp;
             pit.pitType = 2;
             pits.add(pit);
 
             Platform c1 = new Platform();
-            c1.x = startX + 10f;
-            c1.baseY = gY - 120f;
+            c1.x = startX + 8f * dp;
+            c1.baseY = gY - 90f * dp;
             c1.y = c1.baseY;
-            c1.width = 160f;
-            c1.height = 26f;
+            c1.width = 120f * dp;
+            c1.height = 20f * dp;
             c1.movingVertically = true;
             c1.movePhase = random.nextFloat() * 6.28f;
             platforms.add(c1);
 
             Platform c2 = new Platform();
-            c2.x = startX + 195f;
-            c2.baseY = gY - 235f;
+            c2.x = startX + 145f * dp;
+            c2.baseY = gY - 175f * dp;
             c2.y = c2.baseY;
-            c2.width = 155f;
-            c2.height = 26f;
+            c2.width = 120f * dp;
+            c2.height = 20f * dp;
             c2.movingHorizontally = true;
             c2.movePhase = random.nextFloat() * 6.28f;
             platforms.add(c2);
 
             if (pattern == 1) {
                 Obstacle storm = new Obstacle();
-                storm.x = startX + 180f;
-                storm.width = 48f;
-                storm.height = 48f;
-                storm.baseY = gY - 130f;
+                storm.x = startX + 135f * dp;
+                storm.width = 38f * dp;
+                storm.height = 38f * dp;
+                storm.baseY = gY - 95f * dp;
                 storm.y = storm.baseY;
                 storm.type = 1;
                 storm.phase = random.nextFloat() * 6.28f;
                 obstacles.add(storm);
             }
-            spawnStarArc(startX + 205f, c2.baseY - 48f, 3, 45f, 1);
+            spawnStarArc(startX + 155f * dp, c2.baseY - 38f * dp, 3, 36f * dp, 1);
         } else if (stage == 3) {
-            // Parkur 3: Lav Mağarası & Trambolin (Lav Çukurları + Süper Trambolin + Yüksek Kaya Terasları)
+            // Parkur 3: Lav Mağarası & Trambolin
             GroundPit lava = new GroundPit();
-            lava.x = startX + 55f;
-            lava.width = 175f;
+            lava.x = startX + 40f * dp;
+            lava.width = 125f * dp;
             lava.pitType = 1;
             pits.add(lava);
 
             Platform launchPad = new Platform();
-            launchPad.x = startX - 20f;
-            launchPad.baseY = gY - 70f;
+            launchPad.x = startX - 15f * dp;
+            launchPad.baseY = gY - 60f * dp;
             launchPad.y = launchPad.baseY;
-            launchPad.width = 95f;
-            launchPad.height = 22f;
+            launchPad.width = 80f * dp;
+            launchPad.height = platH;
             launchPad.hasTrampoline = true;
-            launchPad.trampolineOffsetX = 25f;
+            launchPad.trampolineOffsetX = 18f * dp;
             platforms.add(launchPad);
 
             Platform upperBridge = new Platform();
-            upperBridge.x = startX + 115f;
-            upperBridge.baseY = gY - 230f;
+            upperBridge.x = startX + 90f * dp;
+            upperBridge.baseY = gY - 175f * dp;
             upperBridge.y = upperBridge.baseY;
-            upperBridge.width = 170f;
-            upperBridge.height = 24f;
+            upperBridge.width = 130f * dp;
+            upperBridge.height = platH;
             platforms.add(upperBridge);
 
             Obstacle fireball = new Obstacle();
-            fireball.x = startX + 135f;
-            fireball.width = 44f;
-            fireball.height = 44f;
-            fireball.baseY = gY - 95f;
+            fireball.x = startX + 100f * dp;
+            fireball.width = 36f * dp;
+            fireball.height = 36f * dp;
+            fireball.baseY = gY - 75f * dp;
             fireball.y = fireball.baseY;
             fireball.type = 1;
             fireball.phase = random.nextFloat() * 6.28f;
             obstacles.add(fireball);
 
-            spawnStarArc(startX + 130f, upperBridge.baseY - 48f, 3, 46f, 2);
+            spawnStarArc(startX + 105f * dp, upperBridge.baseY - 38f * dp, 3, 36f * dp, 2);
         } else if (stage == 4) {
-            // Parkur 4: Kristal Buzul Tepeleri (3 Katlı Buz Terasları + Sarkıt Tünelleri)
+            // Parkur 4: Kristal Buzul Tepeleri
             Platform ice1 = new Platform();
             ice1.x = startX;
-            ice1.baseY = gY - 95f;
+            ice1.baseY = gY - 80f * dp;
             ice1.y = ice1.baseY;
-            ice1.width = 140f;
-            ice1.height = 22f;
+            ice1.width = 115f * dp;
+            ice1.height = platH;
             platforms.add(ice1);
 
             Platform ice2 = new Platform();
-            ice2.x = startX + 155f;
-            ice2.baseY = gY - 195f;
+            ice2.x = startX + 125f * dp;
+            ice2.baseY = gY - 155f * dp;
             ice2.y = ice2.baseY;
-            ice2.width = 155f;
-            ice2.height = 22f;
+            ice2.width = 120f * dp;
+            ice2.height = platH;
             platforms.add(ice2);
 
             if (pattern == 0) {
                 Obstacle spike = new Obstacle();
-                spike.x = startX + 75f;
-                spike.width = 48f;
-                spike.height = 58f;
+                spike.x = startX + 55f * dp;
+                spike.width = 38f * dp;
+                spike.height = 46f * dp;
                 spike.baseY = gY - spike.height;
                 spike.y = spike.baseY;
                 spike.type = 0;
                 obstacles.add(spike);
             } else {
                 Obstacle icicle = new Obstacle();
-                icicle.x = startX + 185f;
-                icicle.width = 44f;
-                icicle.height = 70f;
-                icicle.baseY = gY - 320f;
+                icicle.x = startX + 145f * dp;
+                icicle.width = 36f * dp;
+                icicle.height = 55f * dp;
+                icicle.baseY = gY - 250f * dp;
                 icicle.y = icicle.baseY;
                 icicle.type = 3;
                 obstacles.add(icicle);
             }
-            spawnStarArc(startX + 170f, ice2.baseY - 48f, 3, 46f, 1);
+            spawnStarArc(startX + 135f * dp, ice2.baseY - 38f * dp, 3, 36f * dp, 1);
         } else if (stage == 5) {
-            // Parkur 5: Uzay İstasyonu & Lazer Koridoru (Ay Yerçekimi + Çok Katlı Siber Güverteler)
+            // Parkur 5: Uzay İstasyonu & Lazer Koridoru
             Platform deck1 = new Platform();
-            deck1.x = startX + 15f;
-            deck1.baseY = gY - 135f;
+            deck1.x = startX + 10f * dp;
+            deck1.baseY = gY - 100f * dp;
             deck1.y = deck1.baseY;
-            deck1.width = 165f;
-            deck1.height = 20f;
+            deck1.width = 125f * dp;
+            deck1.height = platH;
             deck1.movingVertically = true;
             deck1.movePhase = random.nextFloat() * 6.28f;
             platforms.add(deck1);
 
             Platform deck2 = new Platform();
-            deck2.x = startX + 195f;
-            deck2.baseY = gY - 265f;
+            deck2.x = startX + 150f * dp;
+            deck2.baseY = gY - 190f * dp;
             deck2.y = deck2.baseY;
-            deck2.width = 160f;
-            deck2.height = 20f;
+            deck2.width = 125f * dp;
+            deck2.height = platH;
             platforms.add(deck2);
 
             Obstacle drone = new Obstacle();
-            drone.x = startX + 125f;
-            drone.width = 48f;
-            drone.height = 48f;
-            drone.baseY = (pattern == 0) ? (gY - 70f) : (gY - 200f);
+            drone.x = startX + 95f * dp;
+            drone.width = 38f * dp;
+            drone.height = 38f * dp;
+            drone.baseY = (pattern == 0) ? (gY - 55f * dp) : (gY - 145f * dp);
             drone.y = drone.baseY;
             drone.type = 1;
             drone.phase = random.nextFloat() * 6.28f;
             obstacles.add(drone);
 
-            spawnStarArc(startX + 210f, deck2.baseY - 48f, 3, 46f, 4);
+            spawnStarArc(startX + 160f * dp, deck2.baseY - 38f * dp, 3, 36f * dp, 4);
         } else {
-            // Parkur 6: Altın Tapınak Piramidi (4 Basamaklı Dev Piramit + Zirve Trambolini)
+            // Parkur 6: Altın Tapınak Piramidi
             for (int step = 0; step < 3; step++) {
                 Platform stair = new Platform();
-                stair.x = startX + step * 100f;
-                stair.baseY = gY - 80f - step * 75f;
+                stair.x = startX + step * 82f * dp;
+                stair.baseY = gY - (65f + step * 58f) * dp;
                 stair.y = stair.baseY;
-                stair.width = 95f;
-                stair.height = 22f;
+                stair.width = 78f * dp;
+                stair.height = platH;
                 if (step == 2) {
                     stair.hasTrampoline = true;
-                    stair.trampolineOffsetX = 25f;
+                    stair.trampolineOffsetX = 18f * dp;
                 }
                 platforms.add(stair);
             }
             Obstacle guard = new Obstacle();
-            guard.x = startX + 130f;
-            guard.width = 48f;
-            guard.height = 54f;
+            guard.x = startX + 105f * dp;
+            guard.width = 38f * dp;
+            guard.height = 44f * dp;
             guard.baseY = gY - guard.height;
             guard.y = guard.baseY;
             guard.type = 2;
             obstacles.add(guard);
 
-            spawnStarArc(startX + 25f, gY - 260f, 4, 50f, 1);
+            spawnStarArc(startX + 20f * dp, gY - 200f * dp, 3, 38f * dp, 1);
         }
 
         if (lives < 3 && random.nextInt(100) < 30) {
             Collectible heart = new Collectible();
-            heart.x = startX + 95f;
-            heart.y = gY - 160f;
+            heart.x = startX + 75f * dp;
+            heart.y = gY - 125f * dp;
             heart.type = 3;
             collectibles.add(heart);
         }
@@ -610,7 +620,7 @@ public class PlatformerJumpGameView extends View {
         for (int i = 0; i < count; i++) {
             Collectible c = new Collectible();
             c.x = startX + i * spacing;
-            c.y = y - (i == 1 ? 20f : 0f);
+            c.y = y - (i == 1 ? 15f * dp : 0f);
             c.type = (i == count - 1) ? preferredType : 0;
             collectibles.add(c);
         }
@@ -623,57 +633,57 @@ public class PlatformerJumpGameView extends View {
         int h = getHeight();
         if (w <= 0 || h <= 0) return;
 
-        float topHudHeight = 112f;
-        groundY = h * 0.84f;
-        playerX = w * 0.20f;
+        float topHudHeight = 98f * dp;
+        groundY = h * 0.82f;
+        playerX = w * 0.22f;
 
         int stageIdx = (stage - 1) % SKY_COLORS.length;
 
-        // 1. Gökyüzü ve Atmosfer Parçacıkları
+        // 1. Gökyüzü ve Paralaks Dağ Tepeleri
         canvas.drawColor(SKY_COLORS[stageIdx]);
 
-        // Arka plan dağ / silüet tepeleri (Paralaks derinlik hissi)
         paint.setColor(0x22000000);
+        float hillSpan = 320f * dp;
         for (int i = 0; i < 4; i++) {
-            float hillX = ((i * 380f - (parkourDistance * 0.35f) % 1520f) + 1520f) % 1520f - 200f;
-            canvas.drawCircle(hillX, groundY + 40f, 220f, paint);
+            float hillX = ((i * hillSpan - (parkourDistanceDp * 0.4f * dp) % (hillSpan * 4)) + (hillSpan * 4)) % (hillSpan * 4) - 120f * dp;
+            canvas.drawCircle(hillX, groundY + 30f * dp, 160f * dp, paint);
         }
 
-        // Parkura özgü atmosfer parçacıkları (Yaprak, Kar, Kor Kıvılcımı, Yıldız Tozu)
+        // Atmosfer Parçacıkları
         paint.setColor(stage == 3 ? 0xAAFF6D00 : (stage == 4 ? 0xDDFFFFFF : 0x88FFFFFF));
         for (AmbientParticle ap : ambientParticles) {
             canvas.drawCircle(ap.x, ap.y, ap.size, paint);
             if (running && !gameOver && !inCountdown) {
                 ap.x += ap.vx;
                 ap.y += ap.vy;
-                if (ap.x < -20f) ap.x = w + 20f;
-                if (ap.y < topHudHeight) ap.y = groundY - 20f;
-                if (ap.y > groundY) ap.y = topHudHeight + 20f;
+                if (ap.x < -20f * dp) ap.x = w + 20f * dp;
+                if (ap.y < topHudHeight) ap.y = groundY - 20f * dp;
+                if (ap.y > groundY) ap.y = topHudHeight + 20f * dp;
             }
         }
 
         // 2. Zemin ve Çukurlar
         paint.setColor(GROUND_COLORS[stageIdx]);
         canvas.drawRect(0, groundY, w, h, paint);
-        paint.setColor(0x33FFFFFF);
-        canvas.drawRect(0, groundY, w, groundY + 8f, paint);
+        paint.setColor(0x44FFFFFF);
+        canvas.drawRect(0, groundY, w, groundY + 6f * dp, paint);
 
         for (GroundPit pit : pits) {
             paint.setColor(SKY_COLORS[stageIdx]);
-            canvas.drawRect(pit.x, groundY - 2f, pit.x + pit.width, h, paint);
+            canvas.drawRect(pit.x, groundY - 2f * dp, pit.x + pit.width, h, paint);
             if (pit.pitType == 0) {
                 paint.setColor(0xFF0288D1);
-                canvas.drawRect(pit.x, groundY + 20f, pit.x + pit.width, h, paint);
+                canvas.drawRect(pit.x, groundY + 14f * dp, pit.x + pit.width, h, paint);
             } else if (pit.pitType == 1) {
                 paint.setColor(0xFFFF3D00);
-                canvas.drawRect(pit.x, groundY + 16f, pit.x + pit.width, h, paint);
+                canvas.drawRect(pit.x, groundY + 12f * dp, pit.x + pit.width, h, paint);
                 paint.setColor(0xFFFFD600);
-                canvas.drawRect(pit.x + 8f, groundY + 16f, pit.x + pit.width - 8f, groundY + 26f, paint);
+                canvas.drawRect(pit.x + 6f * dp, groundY + 12f * dp, pit.x + pit.width - 6f * dp, groundY + 20f * dp, paint);
             }
         }
 
-        // 3. 3-2-1-BAŞLA! Geri Sayım Kontrolü veya Fizik Güncellemesi
-        int currentCountdownStep = 0; // 3, 2, 1, 0 (0 = BAŞLA!)
+        // 3. 3-2-1-BAŞLA! Geri Sayımı veya Fizik Güncellemesi
+        int currentCountdownStep = 0;
         if (inCountdown) {
             long elapsed = SystemClock.elapsedRealtime() - countdownStartRealtimeMs;
             if (elapsed < 850L) {
@@ -683,7 +693,7 @@ public class PlatformerJumpGameView extends View {
             } else if (elapsed < 2550L) {
                 currentCountdownStep = 1;
             } else if (elapsed < 3150L) {
-                currentCountdownStep = 0; // BAŞLA!
+                currentCountdownStep = 0;
             } else {
                 inCountdown = false;
             }
@@ -698,76 +708,79 @@ public class PlatformerJumpGameView extends View {
             updatePhysicsAndSpawns(w, h, topHudHeight);
         }
 
-        // 4. Çok Katmanlı Platformlar ve Trambolinler
+        // 4. Platformlar ve Trambolinler
         for (Platform p : platforms) {
             paint.setColor(PLATFORM_COLORS[stageIdx]);
             RectF pr = new RectF(p.x, p.y, p.x + p.width, p.y + p.height);
-            canvas.drawRoundRect(pr, 12f, 12f, paint);
+            canvas.drawRoundRect(pr, 9f * dp, 9f * dp, paint);
             paint.setColor(0x44000000);
-            canvas.drawRoundRect(new RectF(p.x, p.y + p.height - 6f, p.x + p.width, p.y + p.height), 6f, 6f, paint);
+            canvas.drawRoundRect(new RectF(p.x, p.y + p.height - 5f * dp, p.x + p.width, p.y + p.height), 5f * dp, 5f * dp, paint);
 
             if (p.hasTrampoline) {
                 float tx = p.x + p.trampolineOffsetX;
+                float tw = 42f * dp;
+                float th = 13f * dp;
                 paint.setColor(0xFFFF1744);
-                canvas.drawRoundRect(new RectF(tx, p.y - 16f, tx + 48f, p.y), 8f, 8f, paint);
+                canvas.drawRoundRect(new RectF(tx, p.y - th, tx + tw, p.y), 6f * dp, 6f * dp, paint);
                 paint.setColor(0xFFFFFFFF);
-                canvas.drawCircle(tx + 12f, p.y - 8f, 4f, paint);
-                canvas.drawCircle(tx + 24f, p.y - 10f, 4f, paint);
-                canvas.drawCircle(tx + 36f, p.y - 8f, 4f, paint);
+                canvas.drawCircle(tx + tw * 0.25f, p.y - th * 0.5f, 3f * dp, paint);
+                canvas.drawCircle(tx + tw * 0.50f, p.y - th * 0.6f, 3f * dp, paint);
+                canvas.drawCircle(tx + tw * 0.75f, p.y - th * 0.5f, 3f * dp, paint);
             }
         }
 
         // 5. Parkur Bitiş Kapısı (🏁)
-        if (finishGateSpawned && finishGateX > -120f) {
+        if (finishGateSpawned && finishGateX > -120f * dp) {
             paint.setColor(0xFFFFD600);
-            canvas.drawRect(finishGateX, groundY - 190f, finishGateX + 16f, groundY, paint);
-            canvas.drawRect(finishGateX + 72f, groundY - 190f, finishGateX + 88f, groundY, paint);
+            canvas.drawRect(finishGateX, groundY - 140f * dp, finishGateX + 12f * dp, groundY, paint);
+            canvas.drawRect(finishGateX + 64f * dp, groundY - 140f * dp, finishGateX + 76f * dp, groundY, paint);
             paint.setColor(0xFF00E676);
-            canvas.drawRoundRect(new RectF(finishGateX - 12f, groundY - 220f, finishGateX + 100f, groundY - 170f), 14f, 14f, paint);
+            canvas.drawRoundRect(new RectF(finishGateX - 10f * dp, groundY - 168f * dp, finishGateX + 86f * dp, groundY - 128f * dp), 10f * dp, 10f * dp, paint);
             paint.setColor(0xFF0F172A);
-            paint.setTextSize(24f);
+            paint.setTextSize(16f * sp);
             paint.setTextAlign(Paint.Align.CENTER);
             paint.setFakeBoldText(true);
-            canvas.drawText("🏁 BİTİŞ", finishGateX + 44f, groundY - 187f, paint);
+            canvas.drawText("🏁 BİTİŞ", finishGateX + 38f * dp, groundY - 142f * dp, paint);
         }
 
-        // 6. Toplanabilir Öğeler
+        // 6. Toplanabilir Yıldız, Elmas, Kalkan, Mıknatıs, Kalp (Telefon ekranı için büyük boyutlu)
+        float colRadius = 17f * dp;
         for (Collectible col : collectibles) {
             if (col.type == 0) {
                 paint.setColor(0xFFFFD600);
-                canvas.drawCircle(col.x, col.y, 19f, paint);
+                canvas.drawCircle(col.x, col.y, colRadius, paint);
                 paint.setColor(0xFFE65100);
-                paint.setTextSize(23f);
+                paint.setTextSize(19f * sp);
                 paint.setTextAlign(Paint.Align.CENTER);
-                canvas.drawText("★", col.x, col.y + 8f, paint);
+                canvas.drawText("★", col.x, col.y + 7f * dp, paint);
             } else if (col.type == 1) {
                 paint.setColor(0xFF00E5FF);
-                canvas.drawCircle(col.x, col.y, 21f, paint);
+                canvas.drawCircle(col.x, col.y, colRadius + 2f * dp, paint);
                 paint.setColor(0xFF004D40);
-                paint.setTextSize(21f);
+                paint.setTextSize(18f * sp);
                 paint.setTextAlign(Paint.Align.CENTER);
-                canvas.drawText("💎", col.x, col.y + 7f, paint);
+                canvas.drawText("💎", col.x, col.y + 7f * dp, paint);
             } else if (col.type == 2) {
                 paint.setColor(0xFF69F0AE);
-                canvas.drawCircle(col.x, col.y, 21f, paint);
+                canvas.drawCircle(col.x, col.y, colRadius + 2f * dp, paint);
                 paint.setColor(0xFF1B5E20);
-                paint.setTextSize(20f);
+                paint.setTextSize(18f * sp);
                 paint.setTextAlign(Paint.Align.CENTER);
-                canvas.drawText("🛡️", col.x, col.y + 7f, paint);
+                canvas.drawText("🛡️", col.x, col.y + 7f * dp, paint);
             } else if (col.type == 4) {
                 paint.setColor(0xFFEA80FC);
-                canvas.drawCircle(col.x, col.y, 21f, paint);
+                canvas.drawCircle(col.x, col.y, colRadius + 2f * dp, paint);
                 paint.setColor(0xFF4A148C);
-                paint.setTextSize(20f);
+                paint.setTextSize(18f * sp);
                 paint.setTextAlign(Paint.Align.CENTER);
-                canvas.drawText("🧲", col.x, col.y + 7f, paint);
+                canvas.drawText("🧲", col.x, col.y + 7f * dp, paint);
             } else {
                 paint.setColor(0xFFFFCDD2);
-                canvas.drawCircle(col.x, col.y, 21f, paint);
+                canvas.drawCircle(col.x, col.y, colRadius + 2f * dp, paint);
                 paint.setColor(0xFFC62828);
-                paint.setTextSize(21f);
+                paint.setTextSize(18f * sp);
                 paint.setTextAlign(Paint.Align.CENTER);
-                canvas.drawText("❤️", col.x, col.y + 7f, paint);
+                canvas.drawText("❤️", col.x, col.y + 7f * dp, paint);
             }
         }
 
@@ -789,23 +802,23 @@ public class PlatformerJumpGameView extends View {
             } else if (ob.type == 3) {
                 paint.setColor(0xFF00ACC1);
                 RectF r = new RectF(ob.x, ob.y, ob.x + ob.width, ob.y + ob.height);
-                canvas.drawRoundRect(r, 8f, 8f, paint);
+                canvas.drawRoundRect(r, 6f * dp, 6f * dp, paint);
             } else {
                 paint.setColor(0xFF5D4037);
                 RectF r = new RectF(ob.x, ob.y, ob.x + ob.width, ob.y + ob.height);
-                canvas.drawRoundRect(r, 14f, 14f, paint);
+                canvas.drawRoundRect(r, 10f * dp, 10f * dp, paint);
                 paint.setColor(0xFFFFCA28);
-                canvas.drawRect(ob.x + 6f, ob.y + 8f, ob.x + ob.width - 6f, ob.y + 15f, paint);
+                canvas.drawRect(ob.x + 5f * dp, ob.y + 6f * dp, ob.x + ob.width - 5f * dp, ob.y + 12f * dp, paint);
             }
         }
 
-        // 8. Karakter Kuyruk İzi (Hareket Dinamizmi) ve Karakter Çizimi
+        // 8. Karakter Kuyruk İzi ve Büyük Net Karakter Çizimi
         for (int i = trailX.length - 1; i > 0; i--) {
             trailX[i] = trailX[i - 1] - scrollSpeed * 0.45f;
             trailY[i] = trailY[i - 1];
             paint.setColor(0x33FFAB40);
-            float r = playerRadius * (1f - i * 0.11f);
-            if (r > 2f) {
+            float r = playerRadius * (1f - i * 0.12f);
+            if (r > 2f * dp) {
                 canvas.drawCircle(trailX[i], trailY[i], r, paint);
             }
         }
@@ -815,18 +828,24 @@ public class PlatformerJumpGameView extends View {
         if (invulnerableFrames % 4 < 2) {
             if (hasShield) {
                 paint.setColor(0x6600E676);
-                canvas.drawCircle(playerX, playerY, playerRadius + 14f, paint);
+                canvas.drawCircle(playerX, playerY, playerRadius + 10f * dp, paint);
             }
             if (magnetFrames > 0) {
                 paint.setColor(0x55EA80FC);
-                canvas.drawCircle(playerX, playerY, playerRadius + 20f, paint);
+                canvas.drawCircle(playerX, playerY, playerRadius + 15f * dp, paint);
             }
+            // Karakter gövdesi
             paint.setColor(0xFFFF5722);
             canvas.drawCircle(playerX, playerY, playerRadius, paint);
+            // Kahraman bandanası
+            paint.setColor(0xFFFFD600);
+            canvas.drawRect(playerX - playerRadius * 0.85f, playerY - playerRadius * 0.55f,
+                    playerX + playerRadius * 0.85f, playerY - playerRadius * 0.25f, paint);
+            // Göz akı ve göz bebeği
             paint.setColor(0xFFFFFFFF);
-            canvas.drawCircle(playerX + 9f, playerY - 7f, 6.5f, paint);
-            paint.setColor(0xFF1F2937);
-            canvas.drawCircle(playerX + 11f, playerY - 7f, 3.2f, paint);
+            canvas.drawCircle(playerX + playerRadius * 0.35f, playerY - playerRadius * 0.15f, 5.5f * dp, paint);
+            paint.setColor(0xFF0F172A);
+            canvas.drawCircle(playerX + playerRadius * 0.44f, playerY - playerRadius * 0.15f, 2.8f * dp, paint);
         }
 
         // 9. Parçacık Efektleri
@@ -837,33 +856,33 @@ public class PlatformerJumpGameView extends View {
             s.y += s.vy;
             s.life--;
             paint.setColor(s.color);
-            canvas.drawCircle(s.x, s.y, Math.max(2f, s.life * 0.45f), paint);
+            canvas.drawCircle(s.x, s.y, Math.max(2f * dp, s.life * 0.32f * dp), paint);
             if (s.life <= 0) {
                 spIt.remove();
             }
         }
 
-        // 10. Sağ Alt Köşede Yarı Saydam Tam Ekran Zıplama Pedi İpucu
+        // 10. Sağ Alt Köşede Telefon Ekranına Uygun Zıplama Butonu
         if (!gameOver && !inCountdown) {
-            RectF jumpPad = new RectF(w - 220f, h - 92f, w - 20f, h - 18f);
-            paint.setColor(0x991E293B);
-            canvas.drawRoundRect(jumpPad, 20f, 20f, paint);
+            RectF jumpPad = new RectF(w - 168f * dp, h - 66f * dp, w - 12f * dp, h - 14f * dp);
+            paint.setColor(0xAA0F172A);
+            canvas.drawRoundRect(jumpPad, 14f * dp, 14f * dp, paint);
             paint.setColor(0xFFFFFFFF);
-            paint.setTextSize(20f);
+            paint.setTextSize(15f * sp);
             paint.setFakeBoldText(true);
             paint.setTextAlign(Paint.Align.CENTER);
-            canvas.drawText("⬆️ ZIPLAMA (2x)", jumpPad.centerX(), jumpPad.centerY() + 7f, paint);
+            canvas.drawText("⬆️ ZIPLAMA (2x)", jumpPad.centerX(), jumpPad.centerY() + 5f * dp, paint);
         }
 
-        // 11. Sabit Üst Gösterge Paneli (Çıkış Butonu + 6 Parkur Sekmesi + Kalpler + İlerleme Çubuğu)
+        // 11. Sabit Üst Gösterge Paneli (DP/SP Ölçekli)
         drawTopHudAndParkourTabs(canvas, w, topHudHeight);
 
-        // 12. 3 - 2 - 1 - BAŞLA! Büyük Tam Ekran Geri Sayım Katmanı
+        // 12. 3 - 2 - 1 - BAŞLA! Geri Sayım Katmanı (DP/SP Ölçekli)
         if (inCountdown) {
-            drawCountdownOverlay(canvas, w, h, currentCountdownStep);
+            drawCountdownOverlay(canvas, w, h, topHudHeight, currentCountdownStep);
         }
 
-        // 13. Oyun Bitti (Game Over) Ekranı
+        // 13. Oyun Bitti Ekranı (DP/SP Ölçekli)
         if (gameOver) {
             drawGameOverOverlay(canvas, w, h);
         } else if (running) {
@@ -871,35 +890,35 @@ public class PlatformerJumpGameView extends View {
         }
     }
 
-    private void drawCountdownOverlay(Canvas canvas, int w, int h, int step) {
-        paint.setColor(0x770F172A);
-        canvas.drawRect(0, 112f, w, h, paint);
+    private void drawCountdownOverlay(Canvas canvas, int w, int h, float topHudH, int step) {
+        paint.setColor(0x880F172A);
+        canvas.drawRect(0, topHudH, w, h, paint);
 
         float cx = w * 0.5f;
         float cy = h * 0.48f;
 
-        RectF banner = new RectF(w * 0.12f, cy - 125f, w * 0.88f, cy + 115f);
+        RectF banner = new RectF(w * 0.08f, cy - 105f * dp, w * 0.92f, cy + 95f * dp);
         paint.setColor(0xEE1E293B);
-        canvas.drawRoundRect(banner, 28f, 28f, paint);
+        canvas.drawRoundRect(banner, 20f * dp, 20f * dp, paint);
 
         paint.setColor(0xFF38BDF8);
         paint.setTextAlign(Paint.Align.CENTER);
-        paint.setTextSize(24f);
+        paint.setTextSize(17f * sp);
         paint.setFakeBoldText(true);
         String stName = STAGE_NAMES[(stage - 1) % STAGE_NAMES.length];
-        canvas.drawText("🗺️ PARKUR " + stage + ": " + stName.toUpperCase(), cx, cy - 68f, paint);
+        canvas.drawText("🗺️ PARKUR " + stage + ": " + stName, cx, cy - 60f * dp, paint);
 
         if (step > 0) {
             paint.setColor(0xFFFFD600);
-            paint.setTextSize(92f);
-            canvas.drawText(String.valueOf(step), cx, cy + 32f, paint);
+            paint.setTextSize(62f * sp);
+            canvas.drawText(String.valueOf(step), cx, cy + 20f * dp, paint);
             paint.setColor(0xFFE2E8F0);
-            paint.setTextSize(20f);
-            canvas.drawText("Hazır Ol! Ekrana dokunarak çift zıplayabilirsin", cx, cy + 84f, paint);
+            paint.setTextSize(14f * sp);
+            canvas.drawText("Hazır Ol! Ekrana dokunarak çift zıplayabilirsin", cx, cy + 66f * dp, paint);
         } else {
             paint.setColor(0xFF00E676);
-            paint.setTextSize(68f);
-            canvas.drawText("BAŞLA! 🚀", cx, cy + 28f, paint);
+            paint.setTextSize(42f * sp);
+            canvas.drawText("BAŞLA! 🚀", cx, cy + 18f * dp, paint);
         }
     }
 
@@ -908,105 +927,111 @@ public class PlatformerJumpGameView extends View {
         canvas.drawRect(0, 0, w, hudH, paint);
 
         // Üst Satır: 6 Parkur Seçme Sekmesi
-        float margin = 6f;
+        float margin = 4f * dp;
         float tabW = (w - margin * 7f) / 6f;
+        float tabTop = 6f * dp;
+        float tabBottom = 42f * dp;
         for (int i = 0; i < 6; i++) {
             float left = margin + i * (tabW + margin);
-            parkourTabRects[i].set(left, 8f, left + tabW, 46f);
+            parkourTabRects[i].set(left, tabTop, left + tabW, tabBottom);
             boolean active = (stage == i + 1);
             paint.setColor(active ? 0xFFFF6D00 : 0xFF334155);
-            canvas.drawRoundRect(parkourTabRects[i], 10f, 10f, paint);
+            canvas.drawRoundRect(parkourTabRects[i], 7f * dp, 7f * dp, paint);
 
             paint.setColor(0xFFFFFFFF);
-            paint.setTextSize(17f);
+            paint.setTextSize(11.5f * sp);
             paint.setFakeBoldText(active);
             paint.setTextAlign(Paint.Align.CENTER);
-            canvas.drawText(SHORT_TAB_NAMES[i], parkourTabRects[i].centerX(), 33f, paint);
+            canvas.drawText(SHORT_TAB_NAMES[i], parkourTabRects[i].centerX(), tabBottom - 11f * dp, paint);
         }
 
-        // Alt Satır Sol: ⬅️ Çıkış Butonu + Sabit 3 Kalp (❤️❤️❤️)
-        btnExitRect.set(8f, 56f, 102f, 102f);
+        // Alt Satır Sol: ⬅️ Çıkış Butonu + 3 Kalp (❤️❤️❤️)
+        float row2Top = 50f * dp;
+        float row2Bottom = 88f * dp;
+        btnExitRect.set(6f * dp, row2Top, 82f * dp, row2Bottom);
         paint.setColor(0xFFDC2626);
-        canvas.drawRoundRect(btnExitRect, 10f, 10f, paint);
+        canvas.drawRoundRect(btnExitRect, 8f * dp, 8f * dp, paint);
         paint.setColor(0xFFFFFFFF);
-        paint.setTextSize(17f);
+        paint.setTextSize(13f * sp);
+        paint.setFakeBoldText(true);
         paint.setTextAlign(Paint.Align.CENTER);
-        canvas.drawText("⬅️ Çıkış", btnExitRect.centerX(), 85f, paint);
+        canvas.drawText("⬅️ Çıkış", btnExitRect.centerX(), row2Bottom - 12f * dp, paint);
 
         paint.setTextAlign(Paint.Align.LEFT);
-        paint.setTextSize(22f);
+        paint.setTextSize(15f * sp);
         StringBuilder heartsSb = new StringBuilder();
         for (int i = 0; i < 3; i++) {
             heartsSb.append(i < lives ? "❤️" : "🖤");
         }
         if (hasShield) heartsSb.append("🛡️");
         if (magnetFrames > 0) heartsSb.append("🧲");
-        canvas.drawText(heartsSb.toString(), 112f, 87f, paint);
+        canvas.drawText(heartsSb.toString(), 88f * dp, row2Bottom - 11f * dp, paint);
 
         // Alt Satır Orta: Parkur İlerleme Çubuğu (%0 -> %100 🏁)
-        float barLeft = w * 0.44f;
+        float barLeft = w * 0.48f;
         float barRight = w * 0.74f;
-        float barTop = 66f;
-        float barBottom = 92f;
+        float barTop = 56f * dp;
+        float barBottom = 82f * dp;
         paint.setColor(0xFF334155);
-        canvas.drawRoundRect(new RectF(barLeft, barTop, barRight, barBottom), 10f, 10f, paint);
+        canvas.drawRoundRect(new RectF(barLeft, barTop, barRight, barBottom), 8f * dp, 8f * dp, paint);
 
-        float ratio = Math.min(1f, Math.max(0f, parkourDistance / PARKOUR_TARGET_DISTANCE));
+        float ratio = Math.min(1f, Math.max(0f, parkourDistanceDp / PARKOUR_TARGET_DISTANCE_DP));
         paint.setColor(0xFF00E676);
-        canvas.drawRoundRect(new RectF(barLeft, barTop, barLeft + (barRight - barLeft) * ratio, barBottom), 10f, 10f, paint);
+        canvas.drawRoundRect(new RectF(barLeft, barTop, barLeft + (barRight - barLeft) * ratio, barBottom), 8f * dp, 8f * dp, paint);
 
         paint.setColor(0xFFFFFFFF);
-        paint.setTextSize(16f);
+        paint.setTextSize(12.5f * sp);
         paint.setTextAlign(Paint.Align.CENTER);
         int pct = (int) (ratio * 100f);
-        canvas.drawText("🏁 %" + pct, (barLeft + barRight) * 0.5f, 85f, paint);
+        canvas.drawText("🏁 %" + pct, (barLeft + barRight) * 0.5f, barBottom - 7f * dp, paint);
 
         // Alt Satır Sağ: Puan
         paint.setTextAlign(Paint.Align.RIGHT);
-        paint.setTextSize(22f);
+        paint.setTextSize(15.5f * sp);
         paint.setColor(0xFFFFD600);
-        canvas.drawText("⭐ " + score, w - 12f, 87f, paint);
+        canvas.drawText("⭐ " + score, w - 8f * dp, row2Bottom - 11f * dp, paint);
     }
 
     private void drawGameOverOverlay(Canvas canvas, int w, int h) {
         paint.setColor(0xCC0F172A);
         canvas.drawRect(0, 0, w, h, paint);
 
-        RectF card = new RectF(w * 0.08f, h * 0.22f, w * 0.92f, h * 0.80f);
+        float cy = h * 0.50f;
+        RectF card = new RectF(w * 0.06f, cy - 155f * dp, w * 0.94f, cy + 165f * dp);
         paint.setColor(0xFFFFFFFF);
-        canvas.drawRoundRect(card, 24f, 24f, paint);
+        canvas.drawRoundRect(card, 20f * dp, 20f * dp, paint);
 
         paint.setColor(0xFFD32F2F);
         paint.setTextAlign(Paint.Align.CENTER);
-        paint.setTextSize(32f);
+        paint.setTextSize(23f * sp);
         paint.setFakeBoldText(true);
-        canvas.drawText("💔 3 CANIN BİTTİ!", w * 0.5f, h * 0.32f, paint);
+        canvas.drawText("💔 3 CANIN BİTTİ!", w * 0.5f, cy - 105f * dp, paint);
 
         paint.setColor(0xFF1E293B);
-        paint.setTextSize(22f);
+        paint.setTextSize(16f * sp);
         String stName = STAGE_NAMES[(stage - 1) % STAGE_NAMES.length];
-        canvas.drawText("Parkur " + stage + ": " + stName, w * 0.5f, h * 0.40f, paint);
+        canvas.drawText("Parkur " + stage + ": " + stName, w * 0.5f, cy - 68f * dp, paint);
 
         paint.setColor(0xFF0F172A);
-        paint.setTextSize(25f);
-        canvas.drawText("⭐ Toplam Puan: " + score + "   •   🏆 Rekor: " + highScore, w * 0.5f, h * 0.48f, paint);
+        paint.setTextSize(18f * sp);
+        canvas.drawText("⭐ Puan: " + score + "   •   🏆 Rekor: " + highScore, w * 0.5f, cy - 30f * dp, paint);
 
-        btnRetryRect.set(w * 0.12f, h * 0.55f, w * 0.48f, h * 0.65f);
-        btnNextParkourRect.set(w * 0.52f, h * 0.55f, w * 0.88f, h * 0.65f);
-        btnLobbyOnGameOverRect.set(w * 0.25f, h * 0.68f, w * 0.75f, h * 0.76f);
+        btnRetryRect.set(w * 0.10f, cy + 5f * dp, w * 0.48f, cy + 56f * dp);
+        btnNextParkourRect.set(w * 0.52f, cy + 5f * dp, w * 0.90f, cy + 56f * dp);
+        btnLobbyOnGameOverRect.set(w * 0.18f, cy + 72f * dp, w * 0.82f, cy + 122f * dp);
 
         paint.setColor(0xFF16A34A);
-        canvas.drawRoundRect(btnRetryRect, 14f, 14f, paint);
+        canvas.drawRoundRect(btnRetryRect, 12f * dp, 12f * dp, paint);
         paint.setColor(0xFF2563EB);
-        canvas.drawRoundRect(btnNextParkourRect, 14f, 14f, paint);
+        canvas.drawRoundRect(btnNextParkourRect, 12f * dp, 12f * dp, paint);
         paint.setColor(0xFF475569);
-        canvas.drawRoundRect(btnLobbyOnGameOverRect, 14f, 14f, paint);
+        canvas.drawRoundRect(btnLobbyOnGameOverRect, 12f * dp, 12f * dp, paint);
 
         paint.setColor(0xFFFFFFFF);
-        paint.setTextSize(20f);
-        canvas.drawText("🔄 Tekrar Oyna", btnRetryRect.centerX(), btnRetryRect.centerY() + 7f, paint);
-        canvas.drawText("🗺️ Diğer Parkur", btnNextParkourRect.centerX(), btnNextParkourRect.centerY() + 7f, paint);
-        canvas.drawText("🏠 Oyun Lobisine Dön", btnLobbyOnGameOverRect.centerX(), btnLobbyOnGameOverRect.centerY() + 7f, paint);
+        paint.setTextSize(15f * sp);
+        canvas.drawText("🔄 Tekrar Oyna", btnRetryRect.centerX(), btnRetryRect.centerY() + 5f * dp, paint);
+        canvas.drawText("🗺️ Diğer Parkur", btnNextParkourRect.centerX(), btnNextParkourRect.centerY() + 5f * dp, paint);
+        canvas.drawText("🏠 Oyun Lobisine Dön", btnLobbyOnGameOverRect.centerX(), btnLobbyOnGameOverRect.centerY() + 5f * dp, paint);
     }
 
     private void updatePhysicsAndSpawns(int width, int height, float topHudHeight) {
@@ -1014,8 +1039,8 @@ public class PlatformerJumpGameView extends View {
         if (invulnerableFrames > 0) invulnerableFrames--;
         if (magnetFrames > 0) magnetFrames--;
 
-        scrollSpeed = 6.8f + (stage * 0.55f);
-        float gravity = (stage == 5) ? 0.88f : (stage == 2 ? 1.00f : 1.16f);
+        scrollSpeed = (3.0f + stage * 0.24f) * dp;
+        float gravity = ((stage == 5) ? 0.36f : (stage == 2 ? 0.41f : 0.47f)) * dp;
 
         float prevBottom = playerY + playerRadius;
         playerY += playerVy;
@@ -1026,18 +1051,19 @@ public class PlatformerJumpGameView extends View {
         Iterator<Platform> platIt = platforms.iterator();
         while (platIt.hasNext()) {
             Platform p = platIt.next();
-            float extraDx = p.movingHorizontally ? (float) Math.cos(animTick + p.movePhase) * 1.8f : 0f;
+            float extraDx = p.movingHorizontally ? (float) Math.cos(animTick + p.movePhase) * 0.9f * dp : 0f;
             p.x -= (scrollSpeed + extraDx);
             if (p.movingVertically) {
-                p.y = p.baseY + (float) Math.sin(animTick + p.movePhase) * 32f;
+                p.y = p.baseY + (float) Math.sin(animTick + p.movePhase) * 20f * dp;
             }
 
             if (p.hasTrampoline) {
                 float tx = p.x + p.trampolineOffsetX;
-                if (playerVy >= 0 && playerX + playerRadius * 0.6f >= tx && playerX - playerRadius * 0.6f <= tx + 48f
-                        && prevBottom <= p.y + 14f && newBottom >= p.y - 16f) {
-                    playerY = p.y - 16f - playerRadius;
-                    playerVy = -26.5f;
+                float tw = 42f * dp;
+                if (playerVy >= 0 && playerX + playerRadius * 0.6f >= tx && playerX - playerRadius * 0.6f <= tx + tw
+                        && prevBottom <= p.y + 10f * dp && newBottom >= p.y - 14f * dp) {
+                    playerY = p.y - 14f * dp - playerRadius;
+                    playerVy = -12.6f * dp;
                     jumpCount = 1;
                     spawnSparkles(playerX, playerY + playerRadius, 0xFFFF1744, 15);
                     if (listener != null) listener.onJumpTriggered();
@@ -1048,7 +1074,7 @@ public class PlatformerJumpGameView extends View {
             if (!landedOnPlatform && playerVy >= 0
                     && playerX + playerRadius * 0.55f >= p.x
                     && playerX - playerRadius * 0.55f <= p.x + p.width
-                    && prevBottom <= p.y + 18f
+                    && prevBottom <= p.y + 12f * dp
                     && newBottom >= p.y) {
                 playerY = p.y - playerRadius;
                 playerVy = 0f;
@@ -1056,7 +1082,7 @@ public class PlatformerJumpGameView extends View {
                 landedOnPlatform = true;
             }
 
-            if (p.x + p.width < -90f) {
+            if (p.x + p.width < -60f * dp) {
                 platIt.remove();
             }
         }
@@ -1066,10 +1092,10 @@ public class PlatformerJumpGameView extends View {
         while (pitIt.hasNext()) {
             GroundPit pit = pitIt.next();
             pit.x -= scrollSpeed;
-            if (playerX > pit.x + 12f && playerX < pit.x + pit.width - 12f) {
+            if (playerX > pit.x + 8f * dp && playerX < pit.x + pit.width - 8f * dp) {
                 overPit = true;
             }
-            if (pit.x + pit.width < -90f) {
+            if (pit.x + pit.width < -60f * dp) {
                 pitIt.remove();
             }
         }
@@ -1079,28 +1105,28 @@ public class PlatformerJumpGameView extends View {
                 playerY = groundY - playerRadius;
                 playerVy = 0f;
                 jumpCount = 0;
-            } else if (overPit && playerY - playerRadius > groundY + 28f) {
+            } else if (overPit && playerY - playerRadius > groundY + 18f * dp) {
                 handlePlayerDamage();
-                playerY = groundY - playerRadius - 110f;
-                playerVy = -15f;
+                playerY = groundY - playerRadius - 80f * dp;
+                playerVy = -7.5f * dp;
                 jumpCount = 1;
             }
         }
 
-        if (playerY - playerRadius < topHudHeight + 8f) {
-            playerY = topHudHeight + 8f + playerRadius;
+        if (playerY - playerRadius < topHudHeight + 6f * dp) {
+            playerY = topHudHeight + 6f * dp + playerRadius;
             if (playerVy < 0) playerVy = 0f;
         }
 
-        parkourDistance += scrollSpeed * 0.25f;
-        if (!finishGateSpawned && parkourDistance >= PARKOUR_TARGET_DISTANCE) {
+        parkourDistanceDp += (scrollSpeed / dp) * 0.35f;
+        if (!finishGateSpawned && parkourDistanceDp >= PARKOUR_TARGET_DISTANCE_DP) {
             finishGateSpawned = true;
-            finishGateX = width + 140f;
+            finishGateX = width + 90f * dp;
         }
 
         if (finishGateSpawned) {
             finishGateX -= scrollSpeed;
-            if (Math.abs(finishGateX + 40f - playerX) < 48f) {
+            if (Math.abs(finishGateX + 35f * dp - playerX) < 35f * dp) {
                 score += 100;
                 if (lives < 3) lives++;
                 spawnSparkles(playerX, playerY, 0xFFFFD600, 26);
@@ -1108,7 +1134,7 @@ public class PlatformerJumpGameView extends View {
                 int nextStage = (stage % 6) + 1;
                 loadParkourStage(nextStage);
                 return;
-            } else if (finishGateX < -100f) {
+            } else if (finishGateX < -80f * dp) {
                 int nextStage = (stage % 6) + 1;
                 loadParkourStage(nextStage);
                 return;
@@ -1121,8 +1147,8 @@ public class PlatformerJumpGameView extends View {
             for (Obstacle ob : obstacles) {
                 if (ob.x + ob.width > farthestX) farthestX = ob.x + ob.width;
             }
-            if (farthestX < width - 140f) {
-                spawnParkourChunk(width + 60f);
+            if (farthestX < width - 90f * dp) {
+                spawnParkourChunk(width + 45f * dp);
             }
         }
 
@@ -1130,13 +1156,13 @@ public class PlatformerJumpGameView extends View {
         while (colIt.hasNext()) {
             Collectible c = colIt.next();
             c.x -= scrollSpeed;
-            if (magnetFrames > 0 && (c.type == 0 || c.type == 1) && Math.abs(c.x - playerX) < 280f) {
+            if (magnetFrames > 0 && (c.type == 0 || c.type == 1) && Math.abs(c.x - playerX) < 190f * dp) {
                 c.x += (playerX - c.x) * 0.18f;
                 c.y += (playerY - c.y) * 0.18f;
             }
             float dx = c.x - playerX;
             float dy = c.y - playerY;
-            if (Math.sqrt(dx * dx + dy * dy) < (playerRadius + 24f)) {
+            if (Math.sqrt(dx * dx + dy * dy) < (playerRadius + 18f * dp)) {
                 if (c.type == 0) {
                     score += 15;
                     spawnSparkles(c.x, c.y, 0xFFFFD600, 10);
@@ -1161,7 +1187,7 @@ public class PlatformerJumpGameView extends View {
                 }
                 notifyStats();
                 colIt.remove();
-            } else if (c.x < -60f) {
+            } else if (c.x < -50f * dp) {
                 colIt.remove();
             }
         }
@@ -1171,7 +1197,7 @@ public class PlatformerJumpGameView extends View {
             Obstacle ob = obIt.next();
             ob.x -= scrollSpeed;
             if (ob.type == 1) {
-                ob.y = ob.baseY + (float) Math.sin(animTick * 1.4f + ob.phase) * 36f;
+                ob.y = ob.baseY + (float) Math.sin(animTick * 1.4f + ob.phase) * 24f * dp;
             }
 
             boolean hitX = (playerX + playerRadius * 0.68f > ob.x) && (playerX - playerRadius * 0.68f < ob.x + ob.width);
@@ -1180,7 +1206,7 @@ public class PlatformerJumpGameView extends View {
             if (hitX && hitY && invulnerableFrames == 0) {
                 handlePlayerDamage();
                 obIt.remove();
-            } else if (ob.x + ob.width < -60f) {
+            } else if (ob.x + ob.width < -50f * dp) {
                 score += 5;
                 notifyStats();
                 obIt.remove();

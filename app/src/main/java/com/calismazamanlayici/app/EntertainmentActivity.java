@@ -207,130 +207,103 @@ public class EntertainmentActivity extends Activity {
             paint.setColor(bgColors[gameThemeIndex]);
             canvas.drawRoundRect(new RectF(0, 0, w, h), 22f, 22f, paint);
 
-            // Üst Seviye & İlerleme Barı
-            String[] tierNames = new String[]{
-                    "🟢 SEVİYE 1: ISINMA (KOLAY)",
-                    "🟡 SEVİYE 2: GELİŞİM (ORTA)",
-                    "🟠 SEVİYE 3: UZMAN (ZORLU)",
-                    "🔴 SEVİYE 4: ŞAMPİYONLAR LİGİ"
-            };
-            int[] tierColors = new int[]{0xFF22C55E, 0xFFEAB308, 0xFFF97316, 0xFFEF4444};
-            int tIdx = Math.min(3, Math.max(0, difficultyTier - 1));
+            float dp = getResources().getDisplayMetrics().density;
+            float sp = getResources().getDisplayMetrics().scaledDensity;
 
-            paint.setColor(0x55000000);
-            canvas.drawRoundRect(new RectF(10f, 8f, w - 10f, 40f), 12f, 12f, paint);
+            // Orta Hareketli Aksiyon Alanı (Telefon ekranına tam ölçekli)
+            float cy = h * 0.50f;
+            float heroX = w * 0.18f + (float) Math.sin(tick) * 6f * dp;
+            float targetX = w * 0.80f + (float) Math.cos(tick * 1.2f) * 8f * dp;
+            float targetY = cy + (float) Math.sin(tick * 1.5f) * 9f * dp;
 
-            paint.setColor(tierColors[tIdx]);
-            paint.setTextSize(15f);
-            paint.setFakeBoldText(true);
-            paint.setTextAlign(Paint.Align.LEFT);
-            canvas.drawText(tierNames[tIdx], 20f, 30f, paint);
-
-            paint.setColor(0xFFFFFFFF);
-            paint.setTextAlign(Paint.Align.RIGHT);
-            canvas.drawText("🎯 Çözülen: " + solvedCount + " Soru", w - 20f, 30f, paint);
-
-            // Orta Hareketli Aksiyon Alanı
-            float cy = h * 0.62f;
-            float heroX = w * 0.20f + (float) Math.sin(tick) * 8f;
-            float targetX = w * 0.78f + (float) Math.cos(tick * 1.2f) * 10f;
-            float targetY = cy + (float) Math.sin(tick * 1.5f) * 12f;
-
-            // Arka plan hareketli yıldızlar / kabarcıklar / şeritler
             paint.setColor(0x44FFFFFF);
             for (int i = 0; i < 10; i++) {
-                float sx = ((i * 113f - tick * 32f) % w + w) % w;
-                float sy = 48f + ((i * 37) % Math.max(30, h - 60));
-                canvas.drawCircle(sx, sy, (i % 3) + 2.5f, paint);
+                float sx = ((i * 85f * dp - tick * 22f * dp) % w + w) % w;
+                float sy = 14f * dp + ((i * 29 * (int) dp) % Math.max(30, h - (int) (28 * dp)));
+                canvas.drawCircle(sx, sy, ((i % 3) + 2f) * dp, paint);
             }
 
             if (gameThemeIndex == 0) {
-                // Uzay Gemisi & Dönen Meteor Hedefi
                 paint.setColor(0xFFFF6D00);
-                canvas.drawCircle(heroX - 24f, cy, 8f + (float) Math.abs(Math.sin(tick * 3f)) * 7f, paint);
+                canvas.drawCircle(heroX - 18f * dp, cy, (6f + (float) Math.abs(Math.sin(tick * 3f)) * 5f) * dp, paint);
                 paint.setColor(0xFF38BDF8);
                 path.reset();
-                path.moveTo(heroX + 28f, cy);
-                path.lineTo(heroX - 20f, cy - 22f);
-                path.lineTo(heroX - 20f, cy + 22f);
+                path.moveTo(heroX + 22f * dp, cy);
+                path.lineTo(heroX - 16f * dp, cy - 17f * dp);
+                path.lineTo(heroX - 16f * dp, cy + 17f * dp);
                 path.close();
                 canvas.drawPath(path, paint);
 
                 paint.setColor(0xFFEF4444);
-                canvas.drawCircle(targetX, targetY, 28f, paint);
+                canvas.drawCircle(targetX, targetY, 24f * dp, paint);
                 paint.setColor(0xFFFFFFFF);
                 paint.setTextAlign(Paint.Align.CENTER);
-                paint.setTextSize(22f);
-                canvas.drawText("☄️", targetX, targetY + 8f, paint);
+                paint.setTextSize(22f * sp);
+                canvas.drawText("☄️", targetX, targetY + 8f * dp, paint);
             } else if (gameThemeIndex == 6) {
-                // Yarış Pisti & Hızlanan Araba
                 paint.setColor(0xFF475569);
-                canvas.drawRect(16f, cy - 26f, w - 16f, cy + 26f, paint);
+                canvas.drawRect(12f * dp, cy - 22f * dp, w - 12f * dp, cy + 22f * dp, paint);
                 paint.setColor(0xFFFDE047);
                 for (int i = 0; i < 6; i++) {
-                    float lx = ((i * 140f - tick * 65f) % w + w) % w;
-                    canvas.drawRect(lx, cy - 3f, lx + 48f, cy + 3f, paint);
+                    float lx = ((i * 90f * dp - tick * 45f * dp) % w + w) % w;
+                    canvas.drawRect(lx, cy - 2.5f * dp, lx + 34f * dp, cy + 2.5f * dp, paint);
                 }
-                float carX = w * 0.18f + Math.min(w * 0.52f, (solvedCount % 8) * (w * 0.065f));
+                float carX = w * 0.16f + Math.min(w * 0.54f, (solvedCount % 8) * (w * 0.068f));
                 paint.setColor(0xFFEF4444);
-                canvas.drawRoundRect(new RectF(carX - 30f, cy - 18f, carX + 30f, cy + 18f), 10f, 10f, paint);
+                canvas.drawRoundRect(new RectF(carX - 24f * dp, cy - 15f * dp, carX + 24f * dp, cy + 15f * dp), 8f * dp, 8f * dp, paint);
                 paint.setColor(0xFFFFFFFF);
                 paint.setTextAlign(Paint.Align.CENTER);
-                paint.setTextSize(24f);
-                canvas.drawText("🏎️", carX, cy + 8f, paint);
-                canvas.drawText("🏁", w - 45f, cy + 8f, paint);
+                paint.setTextSize(22f * sp);
+                canvas.drawText("🏎️", carX, cy + 7f * dp, paint);
+                canvas.drawText("🏁", w - 32f * dp, cy + 7f * dp, paint);
             } else {
-                // Diğer oyunlar için hareketli kahraman, enerji köprüsü ve hedef hazine/kule
                 String[] heroIcons = new String[]{"🚀", "🧙‍♂️", "🧑‍🔬", "⛵", "🦸", "🦋", "🏎️", "🕊️"};
                 String[] targetIcons = new String[]{"☄️", "🏰", "⚡", "🏝️", "🌉", "🌻", "🏆", "🗼"};
 
-                // İlerleme taşları
                 int steps = 6;
-                float startX = w * 0.28f;
-                float stepGap = (w * 0.42f) / steps;
+                float startX = w * 0.30f;
+                float stepGap = (w * 0.40f) / steps;
                 for (int i = 0; i < steps; i++) {
                     boolean lit = (solvedCount % (steps + 1)) > i;
                     paint.setColor(lit ? 0xFFFFD600 : 0x44FFFFFF);
-                    canvas.drawCircle(startX + i * stepGap, cy + (float) Math.sin(tick + i) * 5f, lit ? 9f : 6f, paint);
+                    canvas.drawCircle(startX + i * stepGap, cy + (float) Math.sin(tick + i) * 4f * dp, (lit ? 7f : 4.5f) * dp, paint);
                 }
 
                 paint.setColor(0x33FFFFFF);
-                canvas.drawCircle(heroX, cy, 30f, paint);
-                canvas.drawCircle(targetX, targetY, 30f, paint);
+                canvas.drawCircle(heroX, cy, 25f * dp, paint);
+                canvas.drawCircle(targetX, targetY, 25f * dp, paint);
 
                 paint.setColor(0xFFFFFFFF);
                 paint.setTextAlign(Paint.Align.CENTER);
-                paint.setTextSize(30f);
-                canvas.drawText(heroIcons[gameThemeIndex], heroX, cy + 10f, paint);
-                canvas.drawText(targetIcons[gameThemeIndex], targetX, targetY + 10f, paint);
+                paint.setTextSize(24f * sp);
+                canvas.drawText(heroIcons[gameThemeIndex], heroX, cy + 8f * dp, paint);
+                canvas.drawText(targetIcons[gameThemeIndex], targetX, targetY + 8f * dp, paint);
             }
 
-            // Doğru cevapta Lazer / Enerji Işını Efekti
             if (laserFrames > 0) {
                 laserFrames--;
                 paint.setColor(0xFF00E676);
-                paint.setStrokeWidth(8f);
-                canvas.drawLine(heroX + 20f, cy, targetX, targetY, paint);
+                paint.setStrokeWidth(5f * dp);
+                canvas.drawLine(heroX + 16f * dp, cy, targetX, targetY, paint);
                 paint.setStrokeWidth(1f);
             }
 
-            // Yıldız Patlama Parçacıkları ve Kombo Yazısı
             if (animatingBurst) {
                 for (int i = 0; i < px.length; i++) {
                     px[i] += vx[i];
                     py[i] += vy[i];
                     paint.setColor(colors[i % colors.length]);
-                    float radius = Math.max(3f, 12f - animFrame * 0.4f);
+                    float radius = Math.max(2.5f * dp, (9f - animFrame * 0.3f) * dp);
                     canvas.drawCircle(px[i], py[i], radius, paint);
                 }
 
                 paint.setColor(0xDD0F172A);
-                canvas.drawRoundRect(new RectF(w * 0.14f, h - 42f, w * 0.86f, h - 6f), 14f, 14f, paint);
+                canvas.drawRoundRect(new RectF(w * 0.10f, h - 34f * dp, w * 0.90f, h - 4f * dp), 10f * dp, 10f * dp, paint);
                 paint.setColor(0xFFFFD600);
-                paint.setTextSize(20f);
+                paint.setTextSize(14f * sp);
                 paint.setTextAlign(Paint.Align.CENTER);
                 paint.setFakeBoldText(true);
-                canvas.drawText(badgeText, w / 2f, h - 18f, paint);
+                canvas.drawText(badgeText, w / 2f, h - 13f * dp, paint);
 
                 animFrame++;
                 if (animFrame >= 24) {
@@ -852,7 +825,7 @@ public class EntertainmentActivity extends Activity {
             layoutPlatformerJumpArena.setVisibility(View.GONE);
             layoutActiveGameArena.setVisibility(View.VISIBLE);
             tvActiveGameTitle.setText(game.gameTitle);
-            tvGameFeedbackBanner.setText("🟢 Seviye 1 (Isınma Turu) • Bildikçe seviye ve puan ödülü yükselir!");
+            tvGameFeedbackBanner.setText("");
             updateStatsBar();
             updateJokerButtonsUi();
             loadNextQuestion();
@@ -1192,19 +1165,19 @@ public class EntertainmentActivity extends Activity {
                 int a = 4 + random.nextInt(8 * Math.max(1, grade));
                 int b = 3 + random.nextInt(6 * Math.max(1, grade));
                 int ans = a + b;
-                return new QuestionItem("🟢 [Seviye 1 Isınma] Hızlı Toplama:\n" + a + " + " + b + " kaçtır?",
+                return new QuestionItem("🚀 Uzay İstasyonu Toplamı:\n" + a + " + " + b + " kaçtır?",
                         String.valueOf(ans), String.valueOf(ans + 2), String.valueOf(Math.max(1, ans - 2)), String.valueOf(ans + 5));
             } else if (mode == 1) {
                 int b = 3 + random.nextInt(10);
                 int ans = 4 + random.nextInt(10);
                 int a = b + ans;
-                return new QuestionItem("🟢 [Seviye 1 Isınma] Hızlı Çıkarma:\n" + a + " - " + b + " kaçtır?",
+                return new QuestionItem("🚀 Kalkan Enerji Farkı:\n" + a + " - " + b + " kaçtır?",
                         String.valueOf(ans), String.valueOf(ans + 3), String.valueOf(Math.max(1, ans - 1)), String.valueOf(ans + 6));
             } else {
                 int a = 2 + random.nextInt(Math.min(9, grade + 3));
                 int b = 2 + random.nextInt(6);
                 int ans = a * b;
-                return new QuestionItem("🟢 [Seviye 1 Isınma] Yıldız Çarpımı:\n" + a + " × " + b + " kaçtır?",
+                return new QuestionItem("🚀 Yıldız Çarpımı:\n" + a + " × " + b + " kaçtır?",
                         String.valueOf(ans), String.valueOf(ans + a), String.valueOf(Math.max(1, ans - b)), String.valueOf(a + b));
             }
         }
@@ -1435,13 +1408,13 @@ public class EntertainmentActivity extends Activity {
                 int idx = random.nextInt(16);
                 String word = SYNONYM_PAIRS[idx][0];
                 String correct = SYNONYM_PAIRS[idx][1];
-                return new QuestionItem("🟢 [Seviye 1 Isınma] '" + word + "' kelimesinin eş anlamlısı hangisidir?",
+                return new QuestionItem("🏰 '" + word + "' kelimesinin eş anlamlısı hangisidir?",
                         correct, SYNONYM_PAIRS[(idx + 2) % 16][1], SYNONYM_PAIRS[(idx + 5) % 16][1], SYNONYM_PAIRS[(idx + 9) % 16][1]);
             } else {
                 int idx = random.nextInt(16);
                 String word = ANTONYM_PAIRS[idx][0];
                 String correct = ANTONYM_PAIRS[idx][1];
-                return new QuestionItem("🟢 [Seviye 1 Isınma] '" + word + "' kelimesinin zıt anlamlısı hangisidir?",
+                return new QuestionItem("🏰 '" + word + "' kelimesinin zıt anlamlısı hangisidir?",
                         correct, ANTONYM_PAIRS[(idx + 3) % 16][1], ANTONYM_PAIRS[(idx + 6) % 16][1], ANTONYM_PAIRS[(idx + 10) % 16][1]);
             }
         }
@@ -1503,7 +1476,7 @@ public class EntertainmentActivity extends Activity {
     private static QuestionItem generateScienceQuestion(int grade, int tier, Random random) {
         if (tier == 1) {
             String[] f = SCIENCE_FACTS[random.nextInt(8)];
-            return new QuestionItem("🟢 [Seviye 1 Isınma] " + f[0], f[1], f[2], f[3], f[4]);
+            return new QuestionItem("" + f[0], f[1], f[2], f[3], f[4]);
         }
         int mode = random.nextInt(4);
         if (mode == 0 && tier >= 3) {
@@ -1558,7 +1531,7 @@ public class EntertainmentActivity extends Activity {
     private static QuestionItem generateSocialStudiesQuestion(int grade, int tier, Random random) {
         if (tier == 1) {
             String[] g = GEOGRAPHY_HISTORY_FACTS[random.nextInt(6)];
-            return new QuestionItem("🟢 [Seviye 1 Isınma] " + g[0], g[1], g[2], g[3], g[4]);
+            return new QuestionItem("" + g[0], g[1], g[2], g[3], g[4]);
         }
         int mode = random.nextInt(4);
         if (mode == 0 && tier >= 3) {
@@ -1592,7 +1565,7 @@ public class EntertainmentActivity extends Activity {
             int idx = random.nextInt(15);
             String en = ENGLISH_VOCAB[idx][0];
             String tr = ENGLISH_VOCAB[idx][1];
-            return new QuestionItem("🟢 [Seviye 1 Isınma] İngilizce '" + en + "' kelimesinin Türkçe anlamı nedir?",
+            return new QuestionItem("🌍 İngilizce '" + en + "' kelimesinin Türkçe anlamı nedir?",
                     tr,
                     ENGLISH_VOCAB[(idx + 2) % 15][1],
                     ENGLISH_VOCAB[(idx + 5) % 15][1],
