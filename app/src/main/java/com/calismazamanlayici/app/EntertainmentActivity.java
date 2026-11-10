@@ -6,10 +6,14 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.RectF;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -19,21 +23,24 @@ import android.widget.Toast;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.List;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Random;
 import java.util.Set;
 
 /**
- * Öğrenci uygulamasındaki Eğlence (Oyun) Merkezi:
- * - İlerlemeli ve zıplamalı "🏃‍♂️ Süper Yıldız Zıplama Macerası" oyununu ve
- *   her dersin kazanımlarına uygun (oyun adında ders ismi geçmeyen) zenginleştirilmiş sorulu 8 oyunu içerir.
- * - Her oyunun kendine özgü farklı arka plan müziği vardır.
- * - Oynanan oyunlar çalışma sayılmaz, eğlence geçmişi olarak Takvime eklenir.
+ * Öğrenci Uygulaması Eğlence & Macera Merkezi (v5.2):
+ * - "🏃‍♂️ Süper Yıldız Zıplama Macerası" komple TAM EKRAN (Full-Screen Immersive) çalışır ve
+ *   her bölüme/parkura başlarken ekranda "3 - 2 - 1 - BAŞLA!" geri sayımı yapar.
+ * - Diğer 8 oyun, her oyuna özel canlı 60 FPS animasyonlu interaktif oyun sahnesi (Interactive Arcade Canvas),
+ *   3 etkileşimli Joker/Güçlendirici (⚡ %50 İki Şık Ele, 💡 İpucu, 🔥 2x Çifte Puan) ve
+ *   en kolaydan başlayıp soru bildikçe zorlaşan 4 kademeli (Seviye 1 Isınma ➔ Seviye 4 Şampiyon)
+ *   akıllı soru üretim motoru içerir.
  */
 public class EntertainmentActivity extends Activity {
 
     private ScrollView scrollRootEntertainment;
+    private LinearLayout layoutRootInnerContainer;
     private LinearLayout layoutEntHeaderCard;
     private TextView tvEntHeaderTitle;
     private TextView tvEntTimerStatus;
@@ -42,17 +49,23 @@ public class EntertainmentActivity extends Activity {
     private LinearLayout layoutGameLobbyContainer;
     private LinearLayout layoutGameCardsList;
     private LinearLayout layoutPlatformerJumpArena;
+    private LinearLayout layoutJumpCardWrapper;
     private LinearLayout layoutActiveGameArena;
 
     private TextView tvJumpGameStatus;
     private FrameLayout frameJumpGameCanvas;
     private Button btnJumpAction;
+    private Button btnBackFromJumpGame;
     private PlatformerJumpGameView jumpGameView;
 
     private TextView tvActiveGameTitle;
     private TextView tvGameStatsBar;
     private TextView tvGameQuestionPrompt;
     private TextView tvGameFeedbackBanner;
+    private LinearLayout layoutJokerBar;
+    private Button btnJokerFifty;
+    private Button btnJokerHint;
+    private Button btnJokerDouble;
     private LinearLayout layoutGameOptionButtons;
     private FrameLayout frameEffectOverlay;
     private StarBurstEffectView starEffectView;
@@ -62,7 +75,6 @@ public class EntertainmentActivity extends Activity {
     private final Handler timerHandler = new Handler(Looper.getMainLooper());
     private final Random random = new Random();
     private final Set<String> askedPrompts = new HashSet<>();
-    private int bestStreak = 0;
 
     private int totalEntElapsedSeconds = 0;
     private boolean elevenMinWarningShown = false;
@@ -73,7 +85,16 @@ public class EntertainmentActivity extends Activity {
     private int activeGameSessionSeconds = 0;
     private int currentScore = 0;
     private int currentStreak = 0;
+    private int bestStreak = 0;
     private int currentLives = 3;
+    private int questionsSolvedInSession = 0;
+
+    // Joker / Güçlendirici hakları
+    private int jokerFiftyCount = 2;
+    private int jokerHintCount = 2;
+    private int jokerDoubleCount = 2;
+    private boolean doubleScoreActiveOnCurrentQuestion = false;
+    private QuestionItem currentQuestionItem = null;
 
     public static class GameDefinition {
         public final int index;
@@ -108,35 +129,55 @@ public class EntertainmentActivity extends Activity {
         }
     }
 
+    /**
+     * Her oyuna özel sürekli hareketli, canlı 60 FPS Arcade Sahnesi + Patlama Efektleri + Seviye Göstergesi.
+     */
     private static class StarBurstEffectView extends View {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final float[] px = new float[24];
-        private final float[] py = new float[24];
-        private final float[] vx = new float[24];
-        private final float[] vy = new float[24];
+        private final Path path = new Path();
+        private final float[] px = new float[28];
+        private final float[] py = new float[28];
+        private final float[] vx = new float[28];
+        private final float[] vy = new float[28];
         private final int[] colors = new int[]{
                 0xFFFFD54F, 0xFFFF4081, 0xFF00E5FF, 0xFF69F0AE, 0xFFFFAB40, 0xFFEA80FC
         };
         private int animFrame = 0;
-        private boolean animating = false;
-        private String badgeText = "🌟 SÜPER! 🌟";
+        private boolean animatingBurst = false;
+        private String badgeText = "";
+        private int laserFrames = 0;
+
+        private int gameThemeIndex = 0;
+        private int solvedCount = 0;
+        private int difficultyTier = 1;
+        private float tick = 0f;
+        private boolean sceneActive = false;
 
         public StarBurstEffectView(Context context) {
             super(context);
         }
 
+        public void setSceneState(int gameIndex, int solved, int tier, boolean active) {
+            this.gameThemeIndex = Math.abs(gameIndex) % 8;
+            this.solvedCount = solved;
+            this.difficultyTier = tier;
+            this.sceneActive = active;
+            invalidate();
+        }
+
         public void triggerBurst(String text) {
             this.badgeText = text;
             this.animFrame = 0;
-            this.animating = true;
-            float cx = Math.max(getWidth() / 2f, 150f);
-            float cy = Math.max(getHeight() / 2f, 40f);
+            this.animatingBurst = true;
+            this.laserFrames = 18;
+            float cx = Math.max(getWidth() * 0.72f, 180f);
+            float cy = Math.max(getHeight() * 0.52f, 65f);
             Random r = new Random();
             for (int i = 0; i < px.length; i++) {
                 px[i] = cx;
                 py[i] = cy;
                 double angle = (Math.PI * 2 * i) / px.length + r.nextDouble() * 0.3;
-                float speed = 4f + r.nextFloat() * 9f;
+                float speed = 4f + r.nextFloat() * 10f;
                 vx[i] = (float) Math.cos(angle) * speed;
                 vy[i] = (float) Math.sin(angle) * speed;
             }
@@ -146,27 +187,159 @@ public class EntertainmentActivity extends Activity {
         @Override
         protected void onDraw(Canvas canvas) {
             super.onDraw(canvas);
-            if (!animating) return;
+            int w = getWidth();
+            int h = getHeight();
+            if (w <= 0 || h <= 0) return;
 
-            for (int i = 0; i < px.length; i++) {
-                px[i] += vx[i];
-                py[i] += vy[i];
-                paint.setColor(colors[i % colors.length]);
-                float radius = Math.max(3f, 12f - animFrame * 0.4f);
-                canvas.drawCircle(px[i], py[i], radius, paint);
+            tick += 0.08f;
+
+            // 1. Oyuna Özel Hareketli Arka Plan Sahnesi
+            int[] bgColors = new int[]{
+                    0xFF0F172A, // 0: Uzay
+                    0xFF1E1B4B, // 1: Kelime Kalesi
+                    0xFF064E3B, // 2: Laboratuvar
+                    0xFF0C4A6E, // 3: Hazine Avı Deniz
+                    0xFF3B0764, // 4: Sihirli Köprü
+                    0xFF14532D, // 5: İyilik Bahçesi
+                    0xFF1E293B, // 6: Yarış Pisti
+                    0xFF0F766E  // 7: Barış Adası
+            };
+            paint.setColor(bgColors[gameThemeIndex]);
+            canvas.drawRoundRect(new RectF(0, 0, w, h), 22f, 22f, paint);
+
+            // Üst Seviye & İlerleme Barı
+            String[] tierNames = new String[]{
+                    "🟢 SEVİYE 1: ISINMA (KOLAY)",
+                    "🟡 SEVİYE 2: GELİŞİM (ORTA)",
+                    "🟠 SEVİYE 3: UZMAN (ZORLU)",
+                    "🔴 SEVİYE 4: ŞAMPİYONLAR LİGİ"
+            };
+            int[] tierColors = new int[]{0xFF22C55E, 0xFFEAB308, 0xFFF97316, 0xFFEF4444};
+            int tIdx = Math.min(3, Math.max(0, difficultyTier - 1));
+
+            paint.setColor(0x55000000);
+            canvas.drawRoundRect(new RectF(10f, 8f, w - 10f, 40f), 12f, 12f, paint);
+
+            paint.setColor(tierColors[tIdx]);
+            paint.setTextSize(15f);
+            paint.setFakeBoldText(true);
+            paint.setTextAlign(Paint.Align.LEFT);
+            canvas.drawText(tierNames[tIdx], 20f, 30f, paint);
+
+            paint.setColor(0xFFFFFFFF);
+            paint.setTextAlign(Paint.Align.RIGHT);
+            canvas.drawText("🎯 Çözülen: " + solvedCount + " Soru", w - 20f, 30f, paint);
+
+            // Orta Hareketli Aksiyon Alanı
+            float cy = h * 0.62f;
+            float heroX = w * 0.20f + (float) Math.sin(tick) * 8f;
+            float targetX = w * 0.78f + (float) Math.cos(tick * 1.2f) * 10f;
+            float targetY = cy + (float) Math.sin(tick * 1.5f) * 12f;
+
+            // Arka plan hareketli yıldızlar / kabarcıklar / şeritler
+            paint.setColor(0x44FFFFFF);
+            for (int i = 0; i < 10; i++) {
+                float sx = ((i * 113f - tick * 32f) % w + w) % w;
+                float sy = 48f + ((i * 37) % Math.max(30, h - 60));
+                canvas.drawCircle(sx, sy, (i % 3) + 2.5f, paint);
             }
 
-            paint.setColor(0xFFFF8F00);
-            paint.setTextSize(36f);
-            paint.setTextAlign(Paint.Align.CENTER);
-            paint.setFakeBoldText(true);
-            canvas.drawText(badgeText, getWidth() / 2f, getHeight() / 2f + 12f, paint);
+            if (gameThemeIndex == 0) {
+                // Uzay Gemisi & Dönen Meteor Hedefi
+                paint.setColor(0xFFFF6D00);
+                canvas.drawCircle(heroX - 24f, cy, 8f + (float) Math.abs(Math.sin(tick * 3f)) * 7f, paint);
+                paint.setColor(0xFF38BDF8);
+                path.reset();
+                path.moveTo(heroX + 28f, cy);
+                path.lineTo(heroX - 20f, cy - 22f);
+                path.lineTo(heroX - 20f, cy + 22f);
+                path.close();
+                canvas.drawPath(path, paint);
 
-            animFrame++;
-            if (animFrame < 22) {
-                postInvalidateDelayed(35L);
+                paint.setColor(0xFFEF4444);
+                canvas.drawCircle(targetX, targetY, 28f, paint);
+                paint.setColor(0xFFFFFFFF);
+                paint.setTextAlign(Paint.Align.CENTER);
+                paint.setTextSize(22f);
+                canvas.drawText("☄️", targetX, targetY + 8f, paint);
+            } else if (gameThemeIndex == 6) {
+                // Yarış Pisti & Hızlanan Araba
+                paint.setColor(0xFF475569);
+                canvas.drawRect(16f, cy - 26f, w - 16f, cy + 26f, paint);
+                paint.setColor(0xFFFDE047);
+                for (int i = 0; i < 6; i++) {
+                    float lx = ((i * 140f - tick * 65f) % w + w) % w;
+                    canvas.drawRect(lx, cy - 3f, lx + 48f, cy + 3f, paint);
+                }
+                float carX = w * 0.18f + Math.min(w * 0.52f, (solvedCount % 8) * (w * 0.065f));
+                paint.setColor(0xFFEF4444);
+                canvas.drawRoundRect(new RectF(carX - 30f, cy - 18f, carX + 30f, cy + 18f), 10f, 10f, paint);
+                paint.setColor(0xFFFFFFFF);
+                paint.setTextAlign(Paint.Align.CENTER);
+                paint.setTextSize(24f);
+                canvas.drawText("🏎️", carX, cy + 8f, paint);
+                canvas.drawText("🏁", w - 45f, cy + 8f, paint);
             } else {
-                animating = false;
+                // Diğer oyunlar için hareketli kahraman, enerji köprüsü ve hedef hazine/kule
+                String[] heroIcons = new String[]{"🚀", "🧙‍♂️", "🧑‍🔬", "⛵", "🦸", "🦋", "🏎️", "🕊️"};
+                String[] targetIcons = new String[]{"☄️", "🏰", "⚡", "🏝️", "🌉", "🌻", "🏆", "🗼"};
+
+                // İlerleme taşları
+                int steps = 6;
+                float startX = w * 0.28f;
+                float stepGap = (w * 0.42f) / steps;
+                for (int i = 0; i < steps; i++) {
+                    boolean lit = (solvedCount % (steps + 1)) > i;
+                    paint.setColor(lit ? 0xFFFFD600 : 0x44FFFFFF);
+                    canvas.drawCircle(startX + i * stepGap, cy + (float) Math.sin(tick + i) * 5f, lit ? 9f : 6f, paint);
+                }
+
+                paint.setColor(0x33FFFFFF);
+                canvas.drawCircle(heroX, cy, 30f, paint);
+                canvas.drawCircle(targetX, targetY, 30f, paint);
+
+                paint.setColor(0xFFFFFFFF);
+                paint.setTextAlign(Paint.Align.CENTER);
+                paint.setTextSize(30f);
+                canvas.drawText(heroIcons[gameThemeIndex], heroX, cy + 10f, paint);
+                canvas.drawText(targetIcons[gameThemeIndex], targetX, targetY + 10f, paint);
+            }
+
+            // Doğru cevapta Lazer / Enerji Işını Efekti
+            if (laserFrames > 0) {
+                laserFrames--;
+                paint.setColor(0xFF00E676);
+                paint.setStrokeWidth(8f);
+                canvas.drawLine(heroX + 20f, cy, targetX, targetY, paint);
+                paint.setStrokeWidth(1f);
+            }
+
+            // Yıldız Patlama Parçacıkları ve Kombo Yazısı
+            if (animatingBurst) {
+                for (int i = 0; i < px.length; i++) {
+                    px[i] += vx[i];
+                    py[i] += vy[i];
+                    paint.setColor(colors[i % colors.length]);
+                    float radius = Math.max(3f, 12f - animFrame * 0.4f);
+                    canvas.drawCircle(px[i], py[i], radius, paint);
+                }
+
+                paint.setColor(0xDD0F172A);
+                canvas.drawRoundRect(new RectF(w * 0.14f, h - 42f, w * 0.86f, h - 6f), 14f, 14f, paint);
+                paint.setColor(0xFFFFD600);
+                paint.setTextSize(20f);
+                paint.setTextAlign(Paint.Align.CENTER);
+                paint.setFakeBoldText(true);
+                canvas.drawText(badgeText, w / 2f, h - 18f, paint);
+
+                animFrame++;
+                if (animFrame >= 24) {
+                    animatingBurst = false;
+                }
+            }
+
+            if (sceneActive) {
+                postInvalidateDelayed(30L);
             }
         }
     }
@@ -212,6 +385,9 @@ public class EntertainmentActivity extends Activity {
         totalEntElapsedSeconds = StudyDatabaseHelper.getCurrentEntElapsedSafe(this);
 
         scrollRootEntertainment = findViewById(R.id.scrollRootEntertainment);
+        if (scrollRootEntertainment.getChildCount() > 0 && scrollRootEntertainment.getChildAt(0) instanceof LinearLayout) {
+            layoutRootInnerContainer = (LinearLayout) scrollRootEntertainment.getChildAt(0);
+        }
         layoutEntHeaderCard = findViewById(R.id.layoutEntHeaderCard);
         tvEntHeaderTitle = findViewById(R.id.tvEntHeaderTitle);
         tvEntTimerStatus = findViewById(R.id.tvEntTimerStatus);
@@ -220,12 +396,15 @@ public class EntertainmentActivity extends Activity {
         layoutGameLobbyContainer = findViewById(R.id.layoutGameLobbyContainer);
         layoutGameCardsList = findViewById(R.id.layoutGameCardsList);
         layoutPlatformerJumpArena = findViewById(R.id.layoutPlatformerJumpArena);
+        if (layoutPlatformerJumpArena.getChildCount() > 0 && layoutPlatformerJumpArena.getChildAt(0) instanceof LinearLayout) {
+            layoutJumpCardWrapper = (LinearLayout) layoutPlatformerJumpArena.getChildAt(0);
+        }
         layoutActiveGameArena = findViewById(R.id.layoutActiveGameArena);
 
         tvJumpGameStatus = findViewById(R.id.tvJumpGameStatus);
         frameJumpGameCanvas = findViewById(R.id.frameJumpGameCanvas);
         btnJumpAction = findViewById(R.id.btnJumpAction);
-        Button btnBackFromJumpGame = findViewById(R.id.btnBackFromJumpGame);
+        btnBackFromJumpGame = findViewById(R.id.btnBackFromJumpGame);
 
         tvActiveGameTitle = findViewById(R.id.tvActiveGameTitle);
         tvGameStatsBar = findViewById(R.id.tvGameStatsBar);
@@ -240,11 +419,13 @@ public class EntertainmentActivity extends Activity {
         starEffectView = new StarBurstEffectView(this);
         frameEffectOverlay.addView(starEffectView);
 
+        setupInteractiveJokerBar();
+
         jumpGameView = new PlatformerJumpGameView(this, new PlatformerJumpGameView.JumpGameListener() {
             @Override
             public void onStatsUpdated(int score, int stage, String stageName, int lives) {
                 tvJumpGameStatus.setSingleLine(true);
-                tvJumpGameStatus.setText("🗺️ Parkur " + stage + "/6: " + stageName + " (Üstten Parkur Seçebilirsin)");
+                tvJumpGameStatus.setText("🗺️ Parkur " + stage + "/6: " + stageName);
             }
 
             @Override
@@ -261,6 +442,18 @@ public class EntertainmentActivity extends Activity {
             public void onObstacleHit() {
                 musicSynth.playWrongEffect();
             }
+
+            @Override
+            public void onCountdownTick(boolean isGo) {
+                musicSynth.playCountdownTick(isGo);
+            }
+
+            @Override
+            public void onExitRequested() {
+                if (jumpGameView != null) jumpGameView.stopGame();
+                saveActiveGameSessionToCalendarIfNeeded();
+                showLobbyScreen();
+            }
         });
         frameJumpGameCanvas.addView(jumpGameView);
 
@@ -274,7 +467,7 @@ public class EntertainmentActivity extends Activity {
 
         btnToggleGameMusic.setOnClickListener(v -> {
             boolean muted = musicSynth.toggleMute();
-            btnToggleGameMusic.setText(muted ? "🔇 Müzik: Kapalı" : "🎵 Müzik: Açık");
+            btnToggleGameMusic.setText(muted ? "🔇 Ses: Kapalı" : "🎵 Ses: Açık");
         });
 
         btnJumpAction.setOnClickListener(v -> {
@@ -304,6 +497,167 @@ public class EntertainmentActivity extends Activity {
         updateTimerBannerUi();
     }
 
+    /**
+     * Soru oyunlarına heyecan ve etkileşim katan 3 Joker (Güçlendirici) butonunu oluşturur.
+     */
+    private void setupInteractiveJokerBar() {
+        int dp8 = (int) (8 * getResources().getDisplayMetrics().density);
+        layoutJokerBar = new LinearLayout(this);
+        layoutJokerBar.setOrientation(LinearLayout.HORIZONTAL);
+        layoutJokerBar.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams barLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        barLp.setMargins(0, 0, 0, dp8);
+        layoutJokerBar.setLayoutParams(barLp);
+
+        btnJokerFifty = createJokerButton("⚡ %50 Ele (2)", 0xFF7C3AED);
+        btnJokerHint = createJokerButton("💡 İpucu (2)", 0xFF0284C7);
+        btnJokerDouble = createJokerButton("🔥 2x Puan (2)", 0xFFEA580C);
+
+        btnJokerFifty.setOnClickListener(v -> useFiftyFiftyJoker());
+        btnJokerHint.setOnClickListener(v -> useHintJoker());
+        btnJokerDouble.setOnClickListener(v -> useDoubleScoreJoker());
+
+        layoutJokerBar.addView(btnJokerFifty);
+        layoutJokerBar.addView(btnJokerHint);
+        layoutJokerBar.addView(btnJokerDouble);
+
+        int idx = layoutActiveGameArena.indexOfChild(layoutGameOptionButtons);
+        if (idx >= 0) {
+            layoutActiveGameArena.addView(layoutJokerBar, idx);
+        } else {
+            layoutActiveGameArena.addView(layoutJokerBar);
+        }
+    }
+
+    private Button createJokerButton(String text, int color) {
+        int dp4 = (int) (4 * getResources().getDisplayMetrics().density);
+        int h = (int) (44 * getResources().getDisplayMetrics().density);
+        Button b = new Button(this);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, h, 1f);
+        lp.setMargins(dp4, 0, dp4, 0);
+        b.setLayoutParams(lp);
+        b.setBackground(ThemeHelper.createButtonDrawable(this, color));
+        b.setText(text);
+        b.setAllCaps(false);
+        b.setTextColor(0xFFFFFFFF);
+        b.setTextSize(12.5f);
+        b.setTypeface(null, android.graphics.Typeface.BOLD);
+        return b;
+    }
+
+    private void updateJokerButtonsUi() {
+        if (btnJokerFifty != null) {
+            btnJokerFifty.setText("⚡ %50 Ele (" + jokerFiftyCount + ")");
+            btnJokerFifty.setAlpha(jokerFiftyCount > 0 ? 1.0f : 0.45f);
+        }
+        if (btnJokerHint != null) {
+            btnJokerHint.setText("💡 İpucu (" + jokerHintCount + ")");
+            btnJokerHint.setAlpha(jokerHintCount > 0 ? 1.0f : 0.45f);
+        }
+        if (btnJokerDouble != null) {
+            btnJokerDouble.setText(doubleScoreActiveOnCurrentQuestion ? "🔥 2x AKTİF!" : "🔥 2x Puan (" + jokerDoubleCount + ")");
+            btnJokerDouble.setAlpha((jokerDoubleCount > 0 || doubleScoreActiveOnCurrentQuestion) ? 1.0f : 0.45f);
+        }
+    }
+
+    private void useFiftyFiftyJoker() {
+        if (jokerFiftyCount <= 0 || currentQuestionItem == null) {
+            Toast.makeText(this, "⚡ %50 Eleme hakkın kalmadı! 5 seri yapınca +1 hak kazanırsın.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        int removed = 0;
+        for (int i = 0; i < layoutGameOptionButtons.getChildCount(); i++) {
+            View child = layoutGameOptionButtons.getChildAt(i);
+            if (child instanceof Button && child.getVisibility() == View.VISIBLE) {
+                Button b = (Button) child;
+                if (!b.getText().toString().equals(currentQuestionItem.correctAnswer)) {
+                    b.setVisibility(View.INVISIBLE);
+                    b.setEnabled(false);
+                    removed++;
+                    if (removed >= 2) break;
+                }
+            }
+        }
+        if (removed > 0) {
+            jokerFiftyCount--;
+            musicSynth.playCoinEffect();
+            tvGameFeedbackBanner.setText("⚡ %50 Joker kullanıldı! İki yanlış seçenek elendi.");
+            updateJokerButtonsUi();
+        }
+    }
+
+    private void useHintJoker() {
+        if (jokerHintCount <= 0 || currentQuestionItem == null) {
+            Toast.makeText(this, "💡 İpucu hakkın kalmadı! 5 seri yapınca +1 hak kazanırsın.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        jokerHintCount--;
+        musicSynth.playCoinEffect();
+        String ans = currentQuestionItem.correctAnswer;
+        String hintPreview = ans.length() > 2 ? (ans.substring(0, 2) + "...") : (ans.substring(0, 1) + "...");
+        tvGameFeedbackBanner.setText("💡 İPUCU: Doğru cevap '" + hintPreview + "' ile başlıyor!");
+        updateJokerButtonsUi();
+    }
+
+    private void useDoubleScoreJoker() {
+        if (doubleScoreActiveOnCurrentQuestion) return;
+        if (jokerDoubleCount <= 0) {
+            Toast.makeText(this, "🔥 2x Çifte Puan hakkın kalmadı! 5 seri yapınca +1 hak kazanırsın.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        jokerDoubleCount--;
+        doubleScoreActiveOnCurrentQuestion = true;
+        musicSynth.playCoinEffect();
+        tvGameFeedbackBanner.setText("🔥 2x ÇİFTE PUAN AKTİF! Bu soruyu bilirsen iki kat puan kazanacaksın!");
+        updateJokerButtonsUi();
+    }
+
+    private void setFullScreenJumpMode(boolean fullScreen) {
+        int pad16 = (int) (16 * getResources().getDisplayMetrics().density);
+        if (fullScreen) {
+            getWindow().getDecorView().setSystemUiVisibility(
+                    View.SYSTEM_UI_FLAG_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                            | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                            | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            );
+            layoutEntHeaderCard.setVisibility(View.GONE);
+            tvJumpGameStatus.setVisibility(View.GONE);
+            btnJumpAction.setVisibility(View.GONE);
+            btnBackFromJumpGame.setVisibility(View.GONE);
+
+            if (layoutRootInnerContainer != null) {
+                layoutRootInnerContainer.setPadding(0, 0, 0, 0);
+            }
+            if (layoutJumpCardWrapper != null) {
+                layoutJumpCardWrapper.setPadding(0, 0, 0, 0);
+                layoutJumpCardWrapper.setBackgroundColor(0xFF0F172A);
+                LinearLayout.LayoutParams wlp = (LinearLayout.LayoutParams) layoutJumpCardWrapper.getLayoutParams();
+                if (wlp != null) {
+                    wlp.setMargins(0, 0, 0, 0);
+                    layoutJumpCardWrapper.setLayoutParams(wlp);
+                }
+            }
+            int screenH = getResources().getDisplayMetrics().heightPixels;
+            ViewGroup.LayoutParams clp = frameJumpGameCanvas.getLayoutParams();
+            if (clp != null) {
+                clp.height = screenH;
+                frameJumpGameCanvas.setLayoutParams(clp);
+            }
+        } else {
+            getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_VISIBLE);
+            layoutEntHeaderCard.setVisibility(View.VISIBLE);
+            if (layoutRootInnerContainer != null) {
+                layoutRootInnerContainer.setPadding(pad16, pad16, pad16, pad16);
+            }
+        }
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
@@ -316,6 +670,7 @@ public class EntertainmentActivity extends Activity {
     protected void onPause() {
         timerHandler.removeCallbacks(secondTickRunnable);
         if (jumpGameView != null) jumpGameView.stopGame();
+        if (starEffectView != null) starEffectView.setSceneState(activeGameIndex, questionsSolvedInSession, getCurrentDifficultyTier(), false);
         musicSynth.stopBackgroundMusic();
         saveActiveGameSessionToCalendarIfNeeded();
         super.onPause();
@@ -372,14 +727,12 @@ public class EntertainmentActivity extends Activity {
 
     public static List<GameDefinition> buildAllGamesList(int grade, int customSubjectCount) {
         List<GameDefinition> games = new ArrayList<>();
-        // 1. İlerlemeli & Zıplamalı Yeni Macera Oyunu!
         games.add(new GameDefinition(8, "🏃‍♂️ Süper Yıldız Zıplama Macerası",
-                "İlerlemeli ve çift zıplamalı parkurda engelleri aş, yıldızları ve elmasları toplayarak aşamaları geç!",
+                "Tam ekran 6 farklı parkurda 3-2-1 geri sayımla başla, trambolinlerle uç ve yıldızları topla!",
                 0xFFFF5722, true));
 
-        // 2. Ders kazanımlarına uyumlu (adında ders ismi geçmeyen) 8 farklı oyun
         games.add(new GameDefinition(0, "🚀 Galaksi Sayı Avcısı",
-                grade + ". Sınıf uzay gemisiyle yıldız hedeflerini hesapla ve meteorları aş!", 0xFF1E88E5, false));
+                grade + ". Sınıf uzay gemisiyle kolaydan zora hedefleri vur ve meteorları parçala!", 0xFF1E88E5, false));
         games.add(new GameDefinition(1, "🏰 Gizemli Kelime Kalesi",
                 grade + ". Sınıf şifreli parolaları, atasözlerini ve anlam hazinelerini çöz!", 0xFF8E24AA, false));
         games.add(new GameDefinition(2, "🧪 Çılgın Laboratuvar Keşfi",
@@ -437,7 +790,7 @@ public class EntertainmentActivity extends Activity {
 
             Button btnPlay = new Button(this);
             btnPlay.setBackground(ThemeHelper.createButtonDrawable(this, g.accentColor));
-            btnPlay.setText(g.isPlatformerJump ? "🏃‍♂️ Zıplama Macerasını Başlat" : "▶️ Maceraya Başla");
+            btnPlay.setText(g.isPlatformerJump ? "🏃‍♂️ Tam Ekran Zıplama Macerasını Başlat" : "▶️ Canlı Maceraya Başla");
             btnPlay.setAllCaps(false);
             btnPlay.setTextColor(0xFFFFFFFF);
             btnPlay.setTextSize(15f);
@@ -453,9 +806,20 @@ public class EntertainmentActivity extends Activity {
 
     private void showLobbyScreen() {
         inActiveGame = false;
+        setFullScreenJumpMode(false);
+        if (starEffectView != null) {
+            starEffectView.setSceneState(0, 0, 1, false);
+        }
         layoutPlatformerJumpArena.setVisibility(View.GONE);
         layoutActiveGameArena.setVisibility(View.GONE);
         layoutGameLobbyContainer.setVisibility(View.VISIBLE);
+    }
+
+    private int getCurrentDifficultyTier() {
+        if (questionsSolvedInSession < 3) return 1; // 1..3. sorular: Seviye 1 (Çok Kolay Isınma)
+        if (questionsSolvedInSession < 7) return 2; // 4..7. sorular: Seviye 2 (Gelişim)
+        if (questionsSolvedInSession < 12) return 3; // 8..12. sorular: Seviye 3 (Uzman)
+        return 4; // 13+ sorular: Seviye 4 (Şampiyonlar Ligi)
     }
 
     private void startSelectedGame(GameDefinition game) {
@@ -468,6 +832,11 @@ public class EntertainmentActivity extends Activity {
         currentStreak = 0;
         bestStreak = 0;
         currentLives = 3;
+        questionsSolvedInSession = 0;
+        jokerFiftyCount = 2;
+        jokerHintCount = 2;
+        jokerDoubleCount = 2;
+        doubleScoreActiveOnCurrentQuestion = false;
 
         musicSynth.setMelodyIndex(game.index);
         layoutGameLobbyContainer.setVisibility(View.GONE);
@@ -475,39 +844,52 @@ public class EntertainmentActivity extends Activity {
         if (game.isPlatformerJump) {
             layoutActiveGameArena.setVisibility(View.GONE);
             layoutPlatformerJumpArena.setVisibility(View.VISIBLE);
+            setFullScreenJumpMode(true);
             jumpGameView.resetGame();
             jumpGameView.startGame();
         } else {
+            setFullScreenJumpMode(false);
             layoutPlatformerJumpArena.setVisibility(View.GONE);
             layoutActiveGameArena.setVisibility(View.VISIBLE);
             tvActiveGameTitle.setText(game.gameTitle);
-            tvGameFeedbackBanner.setText("🎵 Bu oyuna özel arka plan müziği aktif! Doğru cevaba dokun!");
+            tvGameFeedbackBanner.setText("🟢 Seviye 1 (Isınma Turu) • Bildikçe seviye ve puan ödülü yükselir!");
             updateStatsBar();
+            updateJokerButtonsUi();
             loadNextQuestion();
         }
     }
 
     private void updateStatsBar() {
         StringBuilder hearts = new StringBuilder();
-        for (int i = 0; i < currentLives; i++) hearts.append("❤️");
-        if (currentLives <= 0) hearts.append("🔄");
-        tvGameStatsBar.setText("⭐ Puan: " + currentScore + "  •  🔥 Seri: " + currentStreak + "x  •  " + hearts);
+        for (int i = 0; i < 3; i++) {
+            hearts.append(i < currentLives ? "❤️" : "🖤");
+        }
+        int tier = getCurrentDifficultyTier();
+        tvGameStatsBar.setText("⭐ Puan: " + currentScore + "  •  🔥 Seri: " + currentStreak + "x  •  Seviye " + tier + "  •  " + hearts);
+        if (starEffectView != null) {
+            starEffectView.setSceneState(activeGameIndex, questionsSolvedInSession, tier, inActiveGame);
+        }
     }
 
     private void loadNextQuestion() {
         if (currentLives <= 0) return;
+        doubleScoreActiveOnCurrentQuestion = false;
+        updateJokerButtonsUi();
+
         int grade = StudyDatabaseHelper.getGradeLevel(this);
-        QuestionItem candidate = generateGradeScaledQuestion(activeGameIndex % 8, grade, random);
+        int tier = getCurrentDifficultyTier();
+        QuestionItem candidate = generateGradeScaledQuestion(activeGameIndex % 8, grade, tier, random);
         for (int attempt = 0; attempt < 45; attempt++) {
             if (!askedPrompts.contains(candidate.prompt)) {
                 break;
             }
-            candidate = generateGradeScaledQuestion(activeGameIndex % 8, grade, random);
+            candidate = generateGradeScaledQuestion(activeGameIndex % 8, grade, tier, random);
         }
         if (askedPrompts.size() > 350) {
             askedPrompts.clear();
         }
         askedPrompts.add(candidate.prompt);
+        currentQuestionItem = candidate;
         final QuestionItem q = candidate;
 
         tvGameQuestionPrompt.setText(q.prompt);
@@ -541,16 +923,28 @@ public class EntertainmentActivity extends Activity {
         if (currentLives <= 0) return;
         if (chosen.equals(correct)) {
             currentStreak++;
+            questionsSolvedInSession++;
             if (currentStreak > bestStreak) {
                 bestStreak = currentStreak;
             }
-            int gained = 10 + (currentStreak * 5);
+            int tier = getCurrentDifficultyTier();
+            int gained = (10 + (currentStreak * 5) + (tier * 5)) * (doubleScoreActiveOnCurrentQuestion ? 2 : 1);
             currentScore += gained;
+
+            // Her 5 seride +1 Joker hediye et
+            if (currentStreak % 5 == 0) {
+                jokerFiftyCount++;
+                jokerHintCount++;
+                tvGameFeedbackBanner.setText("🎁 5x SERİ ÖDÜLÜ! +1 Eleme ve +1 İpucu Jokeri Kazandın!");
+            } else {
+                tvGameFeedbackBanner.setText("✅ Harika! Doğru cevap: " + correct + " (+" + gained + " Puan)");
+            }
+
             musicSynth.playSuccessEffect();
             starEffectView.triggerBurst("🌟 +" + gained + " PUAN! (" + currentStreak + "x SERİ!) 🌟");
-            tvGameFeedbackBanner.setText("✅ Harika! Doğru cevap: " + correct);
             updateStatsBar();
-            timerHandler.postDelayed(this::loadNextQuestion, 600L);
+            updateJokerButtonsUi();
+            timerHandler.postDelayed(this::loadNextQuestion, 620L);
         } else {
             currentStreak = 0;
             currentLives--;
@@ -571,15 +965,21 @@ public class EntertainmentActivity extends Activity {
                 .setCancelable(false)
                 .setTitle("💔 3 Canın Bitti! Oyun Sona Erdi")
                 .setMessage("Oyun: " + activeGameTitle
+                        + "\n🎯 Çözülen Soru: " + questionsSolvedInSession
                         + "\n⭐ Toplam Puanın: " + currentScore
                         + "\n🔥 En Yüksek Serin: " + bestStreak + "x"
-                        + "\n\nYeni üretilen sorularla tekrar oynamak ister misin?")
+                        + "\n\nKolaydan zora yeni sorularla tekrar oynamak ister misin?")
                 .setPositiveButton("🔄 Tekrar Oyna", (d, w) -> {
                     currentScore = 0;
                     currentStreak = 0;
                     bestStreak = 0;
                     currentLives = 3;
+                    questionsSolvedInSession = 0;
+                    jokerFiftyCount = 2;
+                    jokerHintCount = 2;
+                    jokerDoubleCount = 2;
                     updateStatsBar();
+                    updateJokerButtonsUi();
                     loadNextQuestion();
                 })
                 .setNegativeButton("🏠 Oyun Lobisine Dön", (d, w) -> {
@@ -590,33 +990,37 @@ public class EntertainmentActivity extends Activity {
     }
 
     // =========================================================================
-    // AKILLI DİNAMİK SORU ÜRETİM MOTORU (Yüzlerce Tekrarsız Kombinasyon & Şablon)
+    // KADEMELİ ZORLAŞAN AKILLI SORU MOTORU (Seviye 1 Çok Kolay ➔ Seviye 4 Zor)
     // =========================================================================
 
     private static final String[][] SYNONYM_PAIRS = new String[][]{
-            {"Özgürlük", "Hürriyet"}, {"Misafir", "Konuk"}, {"Okul", "Mektep"}, {"İhtiyar", "Yaşlı"},
-            {"Hediye", "Armağan"}, {"Hekim", "Doktor"}, {"Yıl", "Sene"}, {"Sonbahar", "Güz"},
-            {"Rüzgâr", "Yel"}, {"Kalp", "Yürek"}, {"Soru", "Sual"}, {"Cevap", "Yanıt"},
-            {"Öykü", "Hikâye"}, {"Anı", "Hatıra"}, {"Zaman", "Vakit"}, {"Doğa", "Tabiat"},
-            {"Yetenek", "Kabiliyet"}, {"Görev", "Vazife"}, {"Ulus", "Millet"}, {"Yurt", "Vatan"},
-            {"Barış", "Sulh"}, {"Tutsak", "Esir"}, {"Fayda", "Yarar"}, {"Zarar", "Ziyan"},
-            {"Kırmızı", "Al"}, {"Beyaz", "Ak"}, {"Siyah", "Kara"}, {"Yoksul", "Fakir"},
-            {"Kafa", "Baş"}, {"Konut", "Ev"}, {"Pabuç", "Ayakkabı"}, {"Giysi", "Elbise"},
-            {"Besin", "Gıda"}, {"Asır", "Yüzyıl"}, {"Kelime", "Sözcük"}, {"Cümle", "Tümce"},
-            {"Öğrenci", "Talebe"}, {"Öğretmen", "Muallim"}, {"Sınav", "İmtihan"}, {"Delil", "Kanıt"},
+            // İlk 16 tanesi en temel/kolay kelimeler (Seviye 1 Isınma için)
+            {"Okul", "Mektep"}, {"Hediye", "Armağan"}, {"Beyaz", "Ak"}, {"Siyah", "Kara"},
+            {"Kırmızı", "Al"}, {"Misafir", "Konuk"}, {"Yıl", "Sene"}, {"İhtiyar", "Yaşlı"},
+            {"Hekim", "Doktor"}, {"Soru", "Sual"}, {"Cevap", "Yanıt"}, {"Kalp", "Yürek"},
+            {"Öykü", "Hikâye"}, {"Kafa", "Baş"}, {"Konut", "Ev"}, {"Öğrenci", "Talebe"},
+            // Seviye 2-4 için zenginleştirilmiş kelimeler
+            {"Özgürlük", "Hürriyet"}, {"Sonbahar", "Güz"}, {"Rüzgâr", "Yel"}, {"Anı", "Hatıra"},
+            {"Zaman", "Vakit"}, {"Doğa", "Tabiat"}, {"Yetenek", "Kabiliyet"}, {"Görev", "Vazife"},
+            {"Ulus", "Millet"}, {"Yurt", "Vatan"}, {"Barış", "Sulh"}, {"Tutsak", "Esir"},
+            {"Fayda", "Yarar"}, {"Zarar", "Ziyan"}, {"Yoksul", "Fakir"}, {"Pabuç", "Ayakkabı"},
+            {"Giysi", "Elbise"}, {"Besin", "Gıda"}, {"Asır", "Yüzyıl"}, {"Kelime", "Sözcük"},
+            {"Cümle", "Tümce"}, {"Öğretmen", "Muallim"}, {"Sınav", "İmtihan"}, {"Delil", "Kanıt"},
             {"Kuvvet", "Güç"}, {"Sevinç", "Mutluluk"}, {"Özlem", "Hasret"}, {"Uzak", "Irak"},
             {"Nehir", "Irmak"}, {"Duru", "Berrak"}, {"Kılavuz", "Rehber"}, {"Şair", "Ozan"}
     };
 
     private static final String[][] ANTONYM_PAIRS = new String[][]{
-            {"Siyah", "Beyaz"}, {"Cesur", "Korkak"}, {"Acemi", "Usta"}, {"Taze", "Bayat"},
-            {"Sıcak", "Soğuk"}, {"Uzun", "Kısa"}, {"Geniş", "Dar"}, {"Yüksek", "Alçak"},
-            {"Ağır", "Hafif"}, {"Dolu", "Boş"}, {"Zengin", "Fakir"}, {"Ucuz", "Pahalı"},
-            {"Erken", "Geç"}, {"Hızlı", "Yavaş"}, {"Doğru", "Yanlış"}, {"Güzel", "Çirkin"},
-            {"İyi", "Kötü"}, {"Büyük", "Küçük"}, {"Genç", "Yaşlı"}, {"Açık", "Kapalı"},
-            {"İleri", "Geri"}, {"Alt", "Üst"}, {"İç", "Dış"}, {"Sağ", "Sol"},
-            {"Doğu", "Batı"}, {"Kuzey", "Güney"}, {"Barış", "Savaş"}, {"Ödül", "Ceza"},
-            {"Sevinç", "Üzüntü"}, {"Dost", "Düşman"}, {"İlk", "Son"}, {"Var", "Yok"},
+            // İlk 16 tanesi en kolay zıt anlamlılar (Seviye 1 Isınma)
+            {"Siyah", "Beyaz"}, {"Büyük", "Küçük"}, {"Uzun", "Kısa"}, {"Sıcak", "Soğuk"},
+            {"Hızlı", "Yavaş"}, {"Açık", "Kapalı"}, {"Gece", "Gündüz"}, {"İyi", "Kötü"},
+            {"Dolu", "Boş"}, {"Ağır", "Hafif"}, {"Genç", "Yaşlı"}, {"Güzel", "Çirkin"},
+            {"Alt", "Üst"}, {"İç", "Dış"}, {"Sağ", "Sol"}, {"İlk", "Son"},
+            // Seviye 2-4 için zıt anlamlılar
+            {"Cesur", "Korkak"}, {"Acemi", "Usta"}, {"Taze", "Bayat"}, {"Geniş", "Dar"},
+            {"Yüksek", "Alçak"}, {"Zengin", "Fakir"}, {"Ucuz", "Pahalı"}, {"Erken", "Geç"},
+            {"Doğru", "Yanlış"}, {"İleri", "Geri"}, {"Doğu", "Batı"}, {"Kuzey", "Güney"},
+            {"Barış", "Savaş"}, {"Ödül", "Ceza"}, {"Sevinç", "Üzüntü"}, {"Dost", "Düşman"},
             {"Sert", "Yumuşak"}, {"Derin", "Sığ"}, {"Parlak", "Mat"}, {"Net", "Bulanık"},
             {"Bolluk", "Kıtlık"}, {"Üretim", "Tüketim"}, {"Gelir", "Gider"}, {"Doğal", "Yapay"}
     };
@@ -652,11 +1056,18 @@ public class EntertainmentActivity extends Activity {
     };
 
     private static final String[][] SCIENCE_FACTS = new String[][]{
+            // İlk 8 tanesi kolay ısınma soruları (Seviye 1)
+            {"Dünyamızın ısı ve ışık kaynağı olan yıldız hangisidir?", "Güneş", "Ay", "Mars", "Venüs"},
+            {"Suyun donarak katı hale geçmiş şekline ne denir?", "Buz", "Buhar", "Sis", "Bulut"},
+            {"Mıknatıs aşağıdaki maddelerden hangisini çeker?", "Demir çivi", "Tahta kalem", "Cam bardak", "Plastik silgi"},
+            {"Vücudumuzda kanı pompalayan organımız hangisidir?", "Kalp", "Mide", "Kemik", "Deri"},
+            {"Dünya'nın doğal uydusu aşağıdakilerden hangisidir?", "Ay", "Güneş", "Mars", "Satürn"},
+            {"Soluk alıp verirken kullandığımız temel solunum organımız hangisidir?", "Akciğer", "Mide", "Böbrek", "Karaciğer"},
             {"Güneş'e en yakın olan gezegen hangisidir?", "Merkür", "Venüs", "Mars", "Jüpiter"},
+            {"Etrafındaki belirgin halkalarıyla ünlü gezegen hangisidir?", "Satürn", "Mars", "Merkür", "Venüs"},
+            // Orta ve İleri Seviye Sorular (Seviye 2-4)
             {"Güneş sisteminin en büyük gezegeni hangisidir?", "Jüpiter", "Satürn", "Dünya", "Neptün"},
             {"Kızıl Gezegen olarak bilinen gezegen hangisidir?", "Mars", "Venüs", "Merkür", "Uranüs"},
-            {"Etrafındaki belirgin halkalarıyla ünlü gezegen hangisidir?", "Satürn", "Mars", "Merkür", "Venüs"},
-            {"Dünya'nın doğal uydusu aşağıdakilerden hangisidir?", "Ay", "Güneş", "Phobos", "Titan"},
             {"Katı bir maddenin ısı alarak doğrudan gaz haline geçmesine ne denir?", "Süblimleşme", "Erime", "Yoğuşma", "Donma"},
             {"Gaz halindeki bir maddenin ısı vererek sıvı hale geçmesine ne denir?", "Yoğuşma", "Buharlaşma", "Erime", "Kırağılaşma"},
             {"Sıvı bir maddenin ısı vererek katı hale geçmesine ne ad verilir?", "Donma", "Erime", "Kaynama", "Süblimleşme"},
@@ -669,14 +1080,19 @@ public class EntertainmentActivity extends Activity {
             {"Sıcaklığı ölçmek için kullanılan alete ne ad verilir?", "Termometre", "Dinamometre", "Ampermetre", "Voltmetre"},
             {"Elektrik devresinde akım şiddetini ölçen alet hangisidir?", "Ampermetre", "Voltmetre", "Termometre", "Dinamometre"},
             {"Ses en hızlı hangi ortamda yayılır?", "Katı maddelerde", "Sıvılarda", "Gazlarda", "Uzay boşluğunda"},
-            {"Işığın kırılması sonucu yağmur sonrası gökyüzünde oluşan renk kuşağına ne denir?", "Gökkuşağı", "Yıldırım", "Şimşek", "Kutup Işığı"},
-            {"Vücudumuzda kanı tüm organlara pompalayan kaslı organımız hangisidir?", "Kalp", "Akciğer", "Karaciğer", "Böbrek"},
             {"Kanımızı süzerek atık maddeleri idrar olarak uzaklaştıran organımız hangisidir?", "Böbrek", "Mide", "Akciğer", "Kalp"},
-            {"Soluk alıp verirken oksijenin kana geçtiği temel solunum organımız hangisidir?", "Akciğer", "Mide", "Kalp", "Dalak"},
             {"Besinlerin kimyasal sindiriminin tamamlandığı ve kana emildiği organ hangisidir?", "İnce bağırsak", "Yutak", "Yemek borusu", "Kalın bağırsak"}
     };
 
     private static final String[][] GEOGRAPHY_HISTORY_FACTS = new String[][]{
+            // İlk 6 tanesi kolay ısınma soruları (Seviye 1)
+            {"Türkiye'nin başkenti hangi şehrimizdir?", "Ankara", "İstanbul", "İzmir", "Bursa"},
+            {"Güneş her sabah hangi ana yönden doğar?", "Doğu", "Batı", "Kuzey", "Güney"},
+            {"Pusulanın renkli ucu her zaman hangi yönü gösterir?", "Kuzey", "Güney", "Doğu", "Batı"},
+            {"Haritalarda denizler ve okyanuslar hangi renkle gösterilir?", "Mavi", "Kahverengi", "Yeşil", "Sarı"},
+            {"Türkiye'de toplam kaç coğrafi bölge vardır?", "7 bölge", "5 bölge", "9 bölge", "10 bölge"},
+            {"Cumhuriyet Bayramımızı her yıl hangi tarihte kutlarız?", "29 Ekim", "23 Nisan", "19 Mayıs", "30 Ağustos"},
+            // Orta ve İleri Seviye Sorular (Seviye 2-4)
             {"Türkiye'nin en yüksek dağı aşağıdakilerden hangisidir?", "Ağrı Dağı", "Erciyes Dağı", "Uludağ", "Palandöken"},
             {"Türkiye'nin en büyük gölü hangisidir?", "Van Gölü", "Tuz Gölü", "Beyşehir Gölü", "Eğirdir Gölü"},
             {"Türkiye sınırları içinde doğup yine Türkiye'de denize dökülen en uzun akarsuyumuz hangisidir?", "Kızılırmak", "Yeşilırmak", "Sakarya", "Gediz"},
@@ -689,7 +1105,6 @@ public class EntertainmentActivity extends Activity {
             {"Çentikli iğne olan 'Fibula'yı ve tapates halılarını yapan Anadolu uygarlığı hangisidir?", "Frigler", "Lidyalılar", "Hititler", "İyonlar"},
             {"Mustafa Kemal Atatürk'ün Samsun'a çıkarak Milli Mücadele'yi başlattığı tarih hangisidir?", "19 Mayıs 1919", "23 Nisan 1920", "29 Ekim 1923", "30 Ağustos 1922"},
             {"Türkiye Büyük Millet Meclisi (TBMM) hangi tarihte Ankara'da açılmıştır?", "23 Nisan 1920", "19 Mayıs 1919", "29 Ekim 1923", "10 Kasım 1938"},
-            {"Büyük Taarruz'un zaferle sonuçlandığı Zafer Bayramı hangi tarihte kutlanır?", "30 Ağustos", "29 Ekim", "19 Mayıs", "23 Nisan"},
             {"Ekvator'a paralel olarak çizildiği varsayılan hayali çemberlere ne ad verilir?", "Paralel (Enlem)", "Meridyen (Boylam)", "Ölçek", "İzohips"},
             {"İki meridyen arasındaki yerel saat farkı her yerde kaç dakikadır?", "4 dakika", "10 dakika", "15 dakika", "60 dakika"},
             {"Peri bacaları ve yer altı şehirleriyle ünlü Kapadokya yöremiz hangi bölgemizdedir?", "İç Anadolu Bölgesi", "Karadeniz Bölgesi", "Marmara Bölgesi", "Ege Bölgesi"},
@@ -698,13 +1113,19 @@ public class EntertainmentActivity extends Activity {
     };
 
     private static final String[][] ENGLISH_VOCAB = new String[][]{
-            {"Apple", "Elma", "Meyve"}, {"Orange", "Portakal", "Meyve"}, {"Banana", "Muz", "Meyve"},
+            // İlk 15 tanesi çok kolay ısınma kelimeleri (Seviye 1)
+            {"Apple", "Elma", "Meyve"}, {"Red", "Kırmızı", "Renk"}, {"Blue", "Mavi", "Renk"},
+            {"Cat", "Kedi", "Hayvan"}, {"Dog", "Köpek", "Hayvan"}, {"Book", "Kitap", "Eşya"},
+            {"School", "Okul", "Mekân"}, {"Water", "Su", "İçecek"}, {"Milk", "Süt", "İçecek"},
+            {"Sun", "Güneş", "Doğa"}, {"Star", "Yıldız", "Doğa"}, {"Mother", "Anne", "Aile"},
+            {"Father", "Baba", "Aile"}, {"Green", "Yeşil", "Renk"}, {"Yellow", "Sarı", "Renk"},
+            // Seviye 2-4 kelimeleri
+            {"Orange", "Portakal", "Meyve"}, {"Banana", "Muz", "Meyve"},
             {"Strawberry", "Çilek", "Meyve"}, {"Watermelon", "Karpuz", "Meyve"}, {"Cherry", "Kiraz", "Meyve"},
             {"Lion", "Aslan", "Hayvan"}, {"Elephant", "Fil", "Hayvan"}, {"Dolphin", "Yunus", "Hayvan"},
             {"Butterfly", "Kelebek", "Hayvan"}, {"Rabbit", "Tavşan", "Hayvan"}, {"Turtle", "Kaplumbağa", "Hayvan"},
             {"Eagle", "Kartal", "Hayvan"}, {"Monkey", "Maymun", "Hayvan"}, {"Horse", "At", "Hayvan"},
-            {"Red", "Kırmızı", "Renk"}, {"Blue", "Mavi", "Renk"}, {"Green", "Yeşil", "Renk"},
-            {"Yellow", "Sarı", "Renk"}, {"Purple", "Mor", "Renk"}, {"White", "Beyaz", "Renk"},
+            {"Purple", "Mor", "Renk"}, {"White", "Beyaz", "Renk"},
             {"Black", "Siyah", "Renk"}, {"Pink", "Pembe", "Renk"}, {"Brown", "Kahverengi", "Renk"},
             {"Teacher", "Öğretmen", "Meslek"}, {"Doctor", "Doktor", "Meslek"}, {"Engineer", "Mühendis", "Meslek"},
             {"Pilot", "Pilot", "Meslek"}, {"Architect", "Mimar", "Meslek"}, {"Scientist", "Bilim İnsanı", "Meslek"},
@@ -727,26 +1148,67 @@ public class EntertainmentActivity extends Activity {
     };
 
     public static QuestionItem generateGradeScaledQuestion(int gameCategory, int grade, Random random) {
+        return generateGradeScaledQuestion(gameCategory, grade, 2, random);
+    }
+
+    /**
+     * difficultyTier (1 = Çok Kolay Isınma, 2 = Gelişim, 3 = Uzman, 4 = Şampiyon):
+     * İlk sorular her zaman Seviye 1 (Kolay) ile başlar, öğrenci soru bildikçe zorluk kademeli artar!
+     */
+    public static QuestionItem generateGradeScaledQuestion(int gameCategory, int grade, int difficultyTier, Random random) {
+        int effectiveGrade = grade;
+        if (difficultyTier == 1) {
+            effectiveGrade = Math.max(1, grade - 2); // Isınma turunda daha kolay temel sorular
+        } else if (difficultyTier == 2) {
+            effectiveGrade = Math.max(1, grade - 1);
+        } else if (difficultyTier >= 4) {
+            effectiveGrade = Math.min(8, grade + 1);
+        }
+
         if (gameCategory == 0) {
-            return generateMathQuestion(grade, random);
+            return generateMathQuestion(effectiveGrade, difficultyTier, random);
         } else if (gameCategory == 1) {
-            return generateTurkishQuestion(grade, random);
+            return generateTurkishQuestion(effectiveGrade, difficultyTier, random);
         } else if (gameCategory == 2) {
-            return generateScienceQuestion(grade, random);
+            return generateScienceQuestion(effectiveGrade, difficultyTier, random);
         } else if (gameCategory == 3) {
-            return generateSocialStudiesQuestion(grade, random);
+            return generateSocialStudiesQuestion(effectiveGrade, difficultyTier, random);
         } else if (gameCategory == 4) {
-            return generateEnglishQuestion(grade, random);
+            return generateEnglishQuestion(effectiveGrade, difficultyTier, random);
         } else if (gameCategory == 5) {
-            return generateValuesQuestion(grade, random);
+            return generateValuesQuestion(effectiveGrade, difficultyTier, random);
         } else if (gameCategory == 6) {
-            return generateSafetyQuestion(grade, random);
+            return generateSafetyQuestion(effectiveGrade, difficultyTier, random);
         } else {
-            return generateCivicsQuestion(grade, random);
+            return generateCivicsQuestion(effectiveGrade, difficultyTier, random);
         }
     }
 
-    private static QuestionItem generateMathQuestion(int grade, Random random) {
+    private static QuestionItem generateMathQuestion(int grade, int tier, Random random) {
+        // Seviye 1 (Isınma Turu): Her sınıf için hızlı, moral veren kolay zihinden işlemler!
+        if (tier == 1) {
+            int mode = random.nextInt(3);
+            if (mode == 0) {
+                int a = 4 + random.nextInt(8 * Math.max(1, grade));
+                int b = 3 + random.nextInt(6 * Math.max(1, grade));
+                int ans = a + b;
+                return new QuestionItem("🟢 [Seviye 1 Isınma] Hızlı Toplama:\n" + a + " + " + b + " kaçtır?",
+                        String.valueOf(ans), String.valueOf(ans + 2), String.valueOf(Math.max(1, ans - 2)), String.valueOf(ans + 5));
+            } else if (mode == 1) {
+                int b = 3 + random.nextInt(10);
+                int ans = 4 + random.nextInt(10);
+                int a = b + ans;
+                return new QuestionItem("🟢 [Seviye 1 Isınma] Hızlı Çıkarma:\n" + a + " - " + b + " kaçtır?",
+                        String.valueOf(ans), String.valueOf(ans + 3), String.valueOf(Math.max(1, ans - 1)), String.valueOf(ans + 6));
+            } else {
+                int a = 2 + random.nextInt(Math.min(9, grade + 3));
+                int b = 2 + random.nextInt(6);
+                int ans = a * b;
+                return new QuestionItem("🟢 [Seviye 1 Isınma] Yıldız Çarpımı:\n" + a + " × " + b + " kaçtır?",
+                        String.valueOf(ans), String.valueOf(ans + a), String.valueOf(Math.max(1, ans - b)), String.valueOf(a + b));
+            }
+        }
+
         int template = random.nextInt(8);
         if (grade <= 2) {
             if (template == 0) {
@@ -966,7 +1428,23 @@ public class EntertainmentActivity extends Activity {
         }
     }
 
-    private static QuestionItem generateTurkishQuestion(int grade, Random random) {
+    private static QuestionItem generateTurkishQuestion(int grade, int tier, Random random) {
+        if (tier == 1) {
+            // Seviye 1 Isınma: En kolay temel eş ve zıt anlamlı kelimeler
+            if (random.nextBoolean()) {
+                int idx = random.nextInt(16);
+                String word = SYNONYM_PAIRS[idx][0];
+                String correct = SYNONYM_PAIRS[idx][1];
+                return new QuestionItem("🟢 [Seviye 1 Isınma] '" + word + "' kelimesinin eş anlamlısı hangisidir?",
+                        correct, SYNONYM_PAIRS[(idx + 2) % 16][1], SYNONYM_PAIRS[(idx + 5) % 16][1], SYNONYM_PAIRS[(idx + 9) % 16][1]);
+            } else {
+                int idx = random.nextInt(16);
+                String word = ANTONYM_PAIRS[idx][0];
+                String correct = ANTONYM_PAIRS[idx][1];
+                return new QuestionItem("🟢 [Seviye 1 Isınma] '" + word + "' kelimesinin zıt anlamlısı hangisidir?",
+                        correct, ANTONYM_PAIRS[(idx + 3) % 16][1], ANTONYM_PAIRS[(idx + 6) % 16][1], ANTONYM_PAIRS[(idx + 10) % 16][1]);
+            }
+        }
         int mode = random.nextInt(5);
         if (mode == 0) {
             int idx = random.nextInt(SYNONYM_PAIRS.length);
@@ -1022,9 +1500,13 @@ public class EntertainmentActivity extends Activity {
         }
     }
 
-    private static QuestionItem generateScienceQuestion(int grade, Random random) {
+    private static QuestionItem generateScienceQuestion(int grade, int tier, Random random) {
+        if (tier == 1) {
+            String[] f = SCIENCE_FACTS[random.nextInt(8)];
+            return new QuestionItem("🟢 [Seviye 1 Isınma] " + f[0], f[1], f[2], f[3], f[4]);
+        }
         int mode = random.nextInt(4);
-        if (mode == 0) {
+        if (mode == 0 && tier >= 3) {
             int speed = (2 + random.nextInt(9)) * 10;
             int time = 2 + random.nextInt(7);
             int dist = speed * time;
@@ -1035,7 +1517,7 @@ public class EntertainmentActivity extends Activity {
                 return new QuestionItem("🧪 Sürat Hesabı:\n" + dist + " metrelik pisti " + time + " saniyede tamamlayan robotun sürati kaç m/s'dir?",
                         speed + " m/s", (speed + 10) + " m/s", (speed - 5) + " m/s", (dist - time) + " m/s");
             }
-        } else if (mode == 1) {
+        } else if (mode == 1 && tier >= 3) {
             if (grade >= 5 && random.nextBoolean()) {
                 int d = 2 + random.nextInt(7);
                 int vol = (2 + random.nextInt(8)) * 10;
@@ -1049,7 +1531,7 @@ public class EntertainmentActivity extends Activity {
                 return new QuestionItem("🧪 Kuvvet Deneyi:\nHer 1 bölmesi " + perUnitN + " Newton (N) gösteren bir dinamometrede yay " + divs + " bölme uzadığına göre uygulanan kuvvet kaç N'dur?",
                         force + " N", (force + perUnitN) + " N", (perUnitN + divs) + " N", Math.max(1, force - 4) + " N");
             }
-        } else if (mode == 2 && grade >= 5) {
+        } else if (mode == 2 && grade >= 5 && tier >= 3) {
             int idx = random.nextInt(SCIENCE_ELEMENTS.length);
             boolean askSymbol = random.nextBoolean();
             String name = SCIENCE_ELEMENTS[idx][0];
@@ -1073,15 +1555,19 @@ public class EntertainmentActivity extends Activity {
         }
     }
 
-    private static QuestionItem generateSocialStudiesQuestion(int grade, Random random) {
+    private static QuestionItem generateSocialStudiesQuestion(int grade, int tier, Random random) {
+        if (tier == 1) {
+            String[] g = GEOGRAPHY_HISTORY_FACTS[random.nextInt(6)];
+            return new QuestionItem("🟢 [Seviye 1 Isınma] " + g[0], g[1], g[2], g[3], g[4]);
+        }
         int mode = random.nextInt(4);
-        if (mode == 0) {
+        if (mode == 0 && tier >= 3) {
             int[] years = new int[]{1071, 1299, 1453, 1517, 1789, 1876, 1919, 1923, 1938, 2024};
             int y = years[random.nextInt(years.length)];
             int century = (y / 100) + 1;
             return new QuestionItem("🧭 Zaman Çizelgesi Görevi:\nTarihteki " + y + " yılı kaçıncı yüzyıl içerisinde yer alır?",
                     century + ". Yüzyıl", (century - 1) + ". Yüzyıl", (century + 1) + ". Yüzyıl", (century - 2) + ". Yüzyıl");
-        } else if (mode == 1) {
+        } else if (mode == 1 && tier >= 3) {
             if (random.nextBoolean()) {
                 int m1 = 26 + random.nextInt(8);
                 int m2 = m1 + 5 + random.nextInt(12);
@@ -1101,7 +1587,17 @@ public class EntertainmentActivity extends Activity {
         }
     }
 
-    private static QuestionItem generateEnglishQuestion(int grade, Random random) {
+    private static QuestionItem generateEnglishQuestion(int grade, int tier, Random random) {
+        if (tier == 1) {
+            int idx = random.nextInt(15);
+            String en = ENGLISH_VOCAB[idx][0];
+            String tr = ENGLISH_VOCAB[idx][1];
+            return new QuestionItem("🟢 [Seviye 1 Isınma] İngilizce '" + en + "' kelimesinin Türkçe anlamı nedir?",
+                    tr,
+                    ENGLISH_VOCAB[(idx + 2) % 15][1],
+                    ENGLISH_VOCAB[(idx + 5) % 15][1],
+                    ENGLISH_VOCAB[(idx + 9) % 15][1]);
+        }
         int mode = random.nextInt(4);
         if (mode == 0) {
             int idx = random.nextInt(ENGLISH_VOCAB.length);
@@ -1131,7 +1627,7 @@ public class EntertainmentActivity extends Activity {
                     ENGLISH_OPPOSITES[(idx + 3) % ENGLISH_OPPOSITES.length][1],
                     ENGLISH_OPPOSITES[(idx + 6) % ENGLISH_OPPOSITES.length][0],
                     ENGLISH_OPPOSITES[(idx + 9) % ENGLISH_OPPOSITES.length][1]);
-        } else if (mode == 2) {
+        } else if (mode == 2 && tier >= 3) {
             String[] tensNames = new String[]{"Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"};
             String[] onesNames = new String[]{"", "-one", "-two", "-three", "-four", "-five", "-six", "-seven", "-eight", "-nine"};
             int tIdx = random.nextInt(tensNames.length);
@@ -1159,8 +1655,8 @@ public class EntertainmentActivity extends Activity {
         }
     }
 
-    private static QuestionItem generateValuesQuestion(int grade, Random random) {
-        if (random.nextInt(4) == 0) {
+    private static QuestionItem generateValuesQuestion(int grade, int tier, Random random) {
+        if (tier >= 3 && random.nextInt(4) == 0) {
             int savedPerDay = 5 + random.nextInt(16);
             int days = 4 + random.nextInt(7);
             int total = savedPerDay * days;
@@ -1181,12 +1677,13 @@ public class EntertainmentActivity extends Activity {
                 {"🕊️ Yemekten önce ve sonra sahip olduğumuz nimetlerin kıymetini bilmeye ne denir?", "Şükür ve kanaat", "İsraf", "Acele", "Gösteriş"},
                 {"🕊️ Ekmeği, suyu ve elektriği gereksiz yere harcamamaya ne ad verilir?", "Tasarruf (İsraftan kaçınmak)", "Cimrilik", "Yorgunluk", "Zenginlik"}
         };
-        String[] pick = bank[random.nextInt(bank.length)];
+        int bound = (tier == 1) ? 4 : bank.length;
+        String[] pick = bank[random.nextInt(bound)];
         return new QuestionItem(pick[0], pick[1], pick[2], pick[3], pick[4]);
     }
 
-    private static QuestionItem generateSafetyQuestion(int grade, Random random) {
-        if (random.nextInt(3) == 0) {
+    private static QuestionItem generateSafetyQuestion(int grade, int tier, Random random) {
+        if (tier >= 3 && random.nextInt(3) == 0) {
             int speed = (4 + random.nextInt(8)) * 10;
             int safeDist = speed / 2;
             return new QuestionItem("🏎️ Güvenli Takip Mesafesi Kuralı:\nSaatte " + speed + " km hızla giden bir aracın öndeki araçla bırakması gereken güvenli takip mesafesi en az kaç metredir? (Hızın yarısı)",
@@ -1206,12 +1703,13 @@ public class EntertainmentActivity extends Activity {
                 {"🏎️ Burun kanaması durumunda doğru ilk yardım uygulaması nasıldır?", "Baş hafifçe öne eğilir ve burun kanatları 5 dk sıkılır", "Baş geriye doğru yatırılır", "Sıcak su içilir", "Koşulur"},
                 {"🏎️ Gece yürüyüşlerinde veya bisiklet sürerken sürücülerin bizi fark etmesi için ne kullanmalıyız?", "Reflektörlü (ışık yansıtıcı) giysi veya yelek", "Koyu siyah kıyafet", "Şemsiye", "Güneş gözlüğü"}
         };
-        String[] pick = bank[random.nextInt(bank.length)];
+        int bound = (tier == 1) ? 4 : bank.length;
+        String[] pick = bank[random.nextInt(bound)];
         return new QuestionItem(pick[0], pick[1], pick[2], pick[3], pick[4]);
     }
 
-    private static QuestionItem generateCivicsQuestion(int grade, Random random) {
-        if (random.nextInt(3) == 0) {
+    private static QuestionItem generateCivicsQuestion(int grade, int tier, Random random) {
+        if (tier >= 3 && random.nextInt(3) == 0) {
             int tons = 2 + random.nextInt(8);
             int trees = tons * 17;
             return new QuestionItem("⚖️ Doğa ve Geri Dönüşüm Görevi:\n1 ton atık kağıdın geri dönüştürülmesi 17 ağacı kesilmekten kurtarmaktadır. Okulumuzda " + tons + " ton kağıt geri dönüştürülürse kaç ağaç kurtulur?",
@@ -1219,17 +1717,18 @@ public class EntertainmentActivity extends Activity {
         }
         String[][] bank = new String[][]{
                 {"⚖️ Birleşmiş Milletler sözleşmesine göre 18 yaşına kadar her bireyin eğitim, sağlık ve oyun hakkına ne denir?", "Çocuk Hakları", "Yarışma Kuralları", "Nöbet Çizelgesi", "Kulüp Tüzüğü"},
+                {"⚖️ Doğayı, ormanları ve su kaynaklarını korumak kimin sorumluluğudur?", "Tüm insanların ortak vatandaşlık sorumluluğudur", "Sadece belediyenin", "Sadece yetişkinlerin", "Hiç kimsenin"},
+                {"⚖️ Grup çalışmalarında başarıya ulaşmanın en güzel yolu aşağıdakilerden hangisidir?", "Görev paylaşımı ve iş birliği yapmak", "Her işi tek bir kişiye yüklemek", "Başkalarını dinlememek", "Çalışmayı yarıda bırakmak"},
+                {"⚖️ Bir anlaşmazlık yaşadığımızda sorunu çözmenin en adil ve barışçıl yolu nedir?", "İletişim kurarak ve uzlaşarak çözmek", "Bağırarak kabul ettirmek", "Küserek konuşmamak", "Eşyaları fırlatmak"},
                 {"⚖️ Bir kişinin özgürlüğünün sınırı nerede biter?", "Başkasının hak ve özgürlüğünün başladığı yerde", "Hiçbir yerde bitmez", "Sadece okulda biter", "Akşam saatlerinde"},
                 {"⚖️ Sınıf başkanlığı seçiminde her öğrencinin eşit oy hakkına sahip olması hangi kavramla ilgilidir?", "Demokrasi ve eşitlik", "Ayrıcalık", "Zorlama", "Rastlantı"},
                 {"⚖️ İnternet ortamında şifrelerimizi ve kişisel bilgilerimizi yabancılarla paylaşmamak neyin gereğidir?", "Dijital güvenlik ve mahremiyet", "Oyun kuralı", "İnternet hızı", "Bilgisayar bakımı"},
-                {"⚖️ Bir anlaşmazlık yaşadığımızda sorunu çözmenin en adil ve barışçıl yolu nedir?", "İletişim kurarak ve uzlaşarak çözmek", "Bağırarak kabul ettirmek", "Küserek konuşmamak", "Eşyaları fırlatmak"},
-                {"⚖️ Doğayı, ormanları ve su kaynaklarını korumak kimin sorumluluğudur?", "Tüm insanların ortak vatandaşlık sorumluluğudur", "Sadece belediyenin", "Sadece yetişkinlerin", "Hiç kimsenin"},
-                {"⚖️ Grup çalışmalarında başarıya ulaşmanın en güzel yolu aşağıdakilerden hangisidir?", "Görev paylaşımı ve iş birliği yapmak", "Her işi tek bir kişiye yüklemek", "Başkalarını dinlememek", "Çalışmayı yarıda bırakmak"},
                 {"⚖️ İnsanların sırf dış görünüşü veya kökeni yüzünden peşin hükümle değerlendirilmesine ne denir?", "Önyargı (Kalıp yargı)", "Empati", "Hoşgörü", "Dayanışma"},
                 {"⚖️ Haberleşme ve özel hayatın gizliliği hakkı ne ile güvence altına alınmıştır?", "Anayasa ve yasalarla", "Oyun kurallarıyla", "Komşu kararıyla", "Hava durumuyla"},
                 {"⚖️ Alışveriş yaptıktan sonra fiş veya fatura almak hangi açıdan önemlidir?", "Tüketici haklarımızı korumak ve vergi bilinci için", "Çantayı doldurmak için", "Kağıt biriktirmek için", "Hiçbir önemi yoktur"}
         };
-        String[] pick = bank[random.nextInt(bank.length)];
+        int bound = (tier == 1) ? 4 : bank.length;
+        String[] pick = bank[random.nextInt(bound)];
         return new QuestionItem(pick[0], pick[1], pick[2], pick[3], pick[4]);
     }
 }

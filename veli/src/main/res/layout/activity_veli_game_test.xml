@@ -195,7 +195,7 @@
                 <FrameLayout
                     android:id="@+id/frameEffectOverlay"
                     android:layout_width="match_parent"
-                    android:layout_height="76dp"
+                    android:layout_height="172dp"
                     android:layout_marginTop="8dp" />
 
                 <TextView
@@ -215,7 +215,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:gravity="center"
-                    android:text="Doğru seçeneğe dokunarak yıldızları topla!"
+                    android:text="🟢 Seviye 1 (Isınma Turu) • Bildikçe zorluk ve ödül artar!"
                     android:textColor="@color/text_muted"
                     android:textSize="14sp"
                     android:textStyle="bold" />
