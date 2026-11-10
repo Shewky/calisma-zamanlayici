@@ -414,6 +414,24 @@ public class VeliGameTestActivity extends Activity {
                 saveActiveGameSessionToCalendarIfNeeded();
                 showLobbyScreen();
             }
+
+            @Override
+            public boolean onToggleMuteRequested() {
+                boolean muted = musicSynth.toggleMute();
+                btnToggleGameMusic.setText(muted ? "🔇 Ses: Kapalı" : "🎵 Ses: Açık");
+                return muted;
+            }
+
+            @Override
+            public void onVoiceCue(String speechText) {
+                try {
+                    Intent s = new Intent(VeliGameTestActivity.this, ParentBackgroundService.class);
+                    s.setAction(ParentBackgroundService.ACTION_SPEAK);
+                    s.putExtra(ParentBackgroundService.EXTRA_SPEECH_TEXT, speechText);
+                    startService(s);
+                } catch (Exception ignored) {
+                }
+            }
         });
         frameJumpGameCanvas.addView(jumpGameView);
 

@@ -427,6 +427,18 @@ public class EntertainmentActivity extends Activity {
                 saveActiveGameSessionToCalendarIfNeeded();
                 showLobbyScreen();
             }
+
+            @Override
+            public boolean onToggleMuteRequested() {
+                boolean muted = musicSynth.toggleMute();
+                btnToggleGameMusic.setText(muted ? "🔇 Ses: Kapalı" : "🎵 Ses: Açık");
+                return muted;
+            }
+
+            @Override
+            public void onVoiceCue(String speechText) {
+                speakViaService(speechText);
+            }
         });
         frameJumpGameCanvas.addView(jumpGameView);
 

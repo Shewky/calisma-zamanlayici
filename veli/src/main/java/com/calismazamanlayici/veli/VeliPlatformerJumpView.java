@@ -31,6 +31,8 @@ public class VeliPlatformerJumpView extends View {
         void onObstacleHit();
         void onCountdownTick(boolean isGo);
         void onExitRequested();
+        boolean onToggleMuteRequested();
+        void onVoiceCue(String speechText);
     }
 
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -43,6 +45,19 @@ public class VeliPlatformerJumpView extends View {
 
     private boolean running = false;
     private boolean gameOver = false;
+    private boolean soundMuted = false;
+
+    // Parkur içi 🎁 Sürpriz Hazine Sandığı (Etkileşimli Bonus Görev Kapısı)
+    private boolean chestSpawnedInStage = false;
+    private float chestX = -500f;
+    private boolean showingChestQuiz = false;
+    private String chestQuestionText = "";
+    private String chestOptLeft = "";
+    private String chestOptRight = "";
+    private boolean leftIsCorrect = true;
+    private final RectF btnChestLeftRect = new RectF();
+    private final RectF btnChestRightRect = new RectF();
+    private final RectF btnMuteRect = new RectF();
 
     // 3-2-1-BAŞLA geri sayımı
     private boolean inCountdown = false;
@@ -219,6 +234,9 @@ public class VeliPlatformerJumpView extends View {
         this.parkourDistanceDp = 0f;
         this.finishGateSpawned = false;
         this.finishGateX = -500f * dp;
+        this.chestSpawnedInStage = false;
+        this.chestX = -500f * dp;
+        this.showingChestQuiz = false;
         this.jumpCount = 0;
         this.playerVy = 0f;
         float gY = (getHeight() > 200) ? (getHeight() * 0.80f) : (460f * dp);
@@ -310,6 +328,39 @@ public class VeliPlatformerJumpView extends View {
             if (btnExitRect.contains(tx, ty)) {
                 if (listener != null) {
                     listener.onExitRequested();
+                }
+                return true;
+            }
+
+            if (btnMuteRect.contains(tx, ty)) {
+                if (listener != null) {
+                    soundMuted = listener.onToggleMuteRequested();
+                    invalidate();
+                }
+                return true;
+            }
+
+            if (showingChestQuiz) {
+                if (btnChestLeftRect.contains(tx, ty) || btnChestRightRect.contains(tx, ty)) {
+                    boolean pickedLeft = btnChestLeftRect.contains(tx, ty);
+                    boolean correct = (pickedLeft == leftIsCorrect);
+                    showingChestQuiz = false;
+                    invulnerableFrames = 60;
+                    if (correct) {
+                        score += 50;
+                        hasShield = true;
+                        spawnSparkles(playerX, playerY, 0xFFFFD600, 22);
+                        if (listener != null) {
+                            listener.onStarCollected();
+                            listener.onVoiceCue("Harika! Doğru bildin ve koruyucu kalkan kazandın!");
+                        }
+                    } else {
+                        if (listener != null) {
+                            listener.onObstacleHit();
+                        }
+                    }
+                    notifyStats();
+                    invalidate();
                 }
                 return true;
             }
@@ -704,7 +755,7 @@ public class VeliPlatformerJumpView extends View {
                     listener.onCountdownTick(currentCountdownStep == 0);
                 }
             }
-        } else if (running && !gameOver) {
+        } else if (running && !gameOver && !showingChestQuiz) {
             updatePhysicsAndSpawns(w, h, topHudHeight);
         }
 
@@ -727,6 +778,19 @@ public class VeliPlatformerJumpView extends View {
                 canvas.drawCircle(tx + tw * 0.50f, p.y - th * 0.6f, 3f * dp, paint);
                 canvas.drawCircle(tx + tw * 0.75f, p.y - th * 0.5f, 3f * dp, paint);
             }
+        }
+
+        // 5A. Parkur Ortasındaki Sürpriz Hazine Sandığı (🎁)
+        if (chestSpawnedInStage && chestX > -80f * dp && !showingChestQuiz) {
+            paint.setColor(0xFFFF8F00);
+            RectF box = new RectF(chestX, groundY - 46f * dp, chestX + 52f * dp, groundY);
+            canvas.drawRoundRect(box, 8f * dp, 8f * dp, paint);
+            paint.setColor(0xFFFFD600);
+            canvas.drawRect(chestX, groundY - 26f * dp, chestX + 52f * dp, groundY - 18f * dp, paint);
+            paint.setColor(0xFFFFFFFF);
+            paint.setTextSize(20f * sp);
+            paint.setTextAlign(Paint.Align.CENTER);
+            canvas.drawText("🎁", chestX + 26f * dp, groundY - 12f * dp, paint);
         }
 
         // 5. Parkur Bitiş Kapısı (🏁)
@@ -882,6 +946,11 @@ public class VeliPlatformerJumpView extends View {
             drawCountdownOverlay(canvas, w, h, topHudHeight, currentCountdownStep);
         }
 
+        // 12B. Sürpriz Hazine Sandığı Bonus Görev Kartı
+        if (showingChestQuiz) {
+            drawChestQuizOverlay(canvas, w, h);
+        }
+
         // 13. Oyun Bitti Ekranı (DP/SP Ölçekli)
         if (gameOver) {
             drawGameOverOverlay(canvas, w, h);
@@ -985,11 +1054,98 @@ public class VeliPlatformerJumpView extends View {
         int pct = (int) (ratio * 100f);
         canvas.drawText("🏁 %" + pct, (barLeft + barRight) * 0.5f, barBottom - 7f * dp, paint);
 
-        // Alt Satır Sağ: Puan
+        // Alt Satır Sağ: Ses Aç/Kapat Butonu (🔊/🔇) ve Puan
+        btnMuteRect.set(w - 42f * dp, row2Top, w - 6f * dp, row2Bottom);
+        paint.setColor(0xFF334155);
+        canvas.drawRoundRect(btnMuteRect, 8f * dp, 8f * dp, paint);
+        paint.setColor(0xFFFFFFFF);
+        paint.setTextSize(14f * sp);
+        paint.setTextAlign(Paint.Align.CENTER);
+        canvas.drawText(soundMuted ? "🔇" : "🔊", btnMuteRect.centerX(), row2Bottom - 11f * dp, paint);
+
         paint.setTextAlign(Paint.Align.RIGHT);
-        paint.setTextSize(15.5f * sp);
+        paint.setTextSize(15f * sp);
         paint.setColor(0xFFFFD600);
-        canvas.drawText("⭐ " + score, w - 8f * dp, row2Bottom - 11f * dp, paint);
+        canvas.drawText("⭐ " + score, w - 48f * dp, row2Bottom - 11f * dp, paint);
+    }
+
+    private void triggerRandomChestQuiz() {
+        showingChestQuiz = true;
+        int qType = random.nextInt(4);
+        if (qType == 0) {
+            int a = 6 + random.nextInt(15 * stage);
+            int b = 5 + random.nextInt(12 * stage);
+            int ans = a + b;
+            chestQuestionText = "🎁 Hazine Şifresi: " + a + " + " + b + " kaçtır?";
+            leftIsCorrect = random.nextBoolean();
+            chestOptLeft = leftIsCorrect ? String.valueOf(ans) : String.valueOf(ans + 3);
+            chestOptRight = leftIsCorrect ? String.valueOf(ans + 4) : String.valueOf(ans);
+        } else if (qType == 1) {
+            int a = 3 + random.nextInt(7);
+            int b = 3 + random.nextInt(7);
+            int ans = a * b;
+            chestQuestionText = "🎁 Hazine Şifresi: " + a + " × " + b + " kaçtır?";
+            leftIsCorrect = random.nextBoolean();
+            chestOptLeft = leftIsCorrect ? String.valueOf(ans) : String.valueOf(ans + a);
+            chestOptRight = leftIsCorrect ? String.valueOf(ans + b) : String.valueOf(ans);
+        } else if (qType == 2) {
+            String[][] pairs = new String[][]{
+                    {"'Özgürlük' eş anlamlısı?", "Hürriyet", "Esaret"},
+                    {"'İhtiyar' eş anlamlısı?", "Yaşlı", "Genç"},
+                    {"'Cesur' zıt anlamlısı?", "Korkak", "Kahraman"},
+                    {"'Taze' zıt anlamlısı?", "Bayat", "Yeni"}
+            };
+            String[] p = pairs[random.nextInt(pairs.length)];
+            chestQuestionText = "🎁 Hazine Parolası: " + p[0];
+            leftIsCorrect = random.nextBoolean();
+            chestOptLeft = leftIsCorrect ? p[1] : p[2];
+            chestOptRight = leftIsCorrect ? p[2] : p[1];
+        } else {
+            String[][] sci = new String[][]{
+                    {"Güneş'e en yakın gezegen?", "Merkür", "Mars"},
+                    {"Kuvveti ölçen alet?", "Dinamometre", "Termometre"},
+                    {"Türkiye'nin başkenti?", "Ankara", "İstanbul"},
+                    {"Pusulanın renkli ucu?", "Kuzey", "Güney"}
+            };
+            String[] s = sci[random.nextInt(sci.length)];
+            chestQuestionText = "🎁 Hazine Sorusu: " + s[0];
+            leftIsCorrect = random.nextBoolean();
+            chestOptLeft = leftIsCorrect ? s[1] : s[2];
+            chestOptRight = leftIsCorrect ? s[2] : s[1];
+        }
+    }
+
+    private void drawChestQuizOverlay(Canvas canvas, int w, int h) {
+        paint.setColor(0xBB0F172A);
+        canvas.drawRect(0, 0, w, h, paint);
+
+        float cy = h * 0.50f;
+        RectF card = new RectF(w * 0.07f, cy - 115f * dp, w * 0.93f, cy + 115f * dp);
+        paint.setColor(0xFF1E293B);
+        canvas.drawRoundRect(card, 20f * dp, 20f * dp, paint);
+
+        paint.setColor(0xFFFFD600);
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setTextSize(17f * sp);
+        paint.setFakeBoldText(true);
+        canvas.drawText("🎁 SÜRPRİZ HAZİNE SANDIĞI (+50 Puan & 🛡️ Kalkan)", w * 0.5f, cy - 72f * dp, paint);
+
+        paint.setColor(0xFFFFFFFF);
+        paint.setTextSize(16f * sp);
+        canvas.drawText(chestQuestionText, w * 0.5f, cy - 22f * dp, paint);
+
+        btnChestLeftRect.set(w * 0.11f, cy + 18f * dp, w * 0.48f, cy + 82f * dp);
+        btnChestRightRect.set(w * 0.52f, cy + 18f * dp, w * 0.89f, cy + 82f * dp);
+
+        paint.setColor(0xFF16A34A);
+        canvas.drawRoundRect(btnChestLeftRect, 14f * dp, 14f * dp, paint);
+        paint.setColor(0xFF2563EB);
+        canvas.drawRoundRect(btnChestRightRect, 14f * dp, 14f * dp, paint);
+
+        paint.setColor(0xFFFFFFFF);
+        paint.setTextSize(17f * sp);
+        canvas.drawText(chestOptLeft, btnChestLeftRect.centerX(), btnChestLeftRect.centerY() + 6f * dp, paint);
+        canvas.drawText(chestOptRight, btnChestRightRect.centerX(), btnChestRightRect.centerY() + 6f * dp, paint);
     }
 
     private void drawGameOverOverlay(Canvas canvas, int w, int h) {
@@ -1119,6 +1275,18 @@ public class VeliPlatformerJumpView extends View {
         }
 
         parkourDistanceDp += (scrollSpeed / dp) * 0.35f;
+        if (!chestSpawnedInStage && parkourDistanceDp >= PARKOUR_TARGET_DISTANCE_DP * 0.45f) {
+            chestSpawnedInStage = true;
+            chestX = width + 70f * dp;
+        }
+        if (chestSpawnedInStage && chestX > -90f * dp) {
+            chestX -= scrollSpeed;
+            if (Math.abs((chestX + 26f * dp) - playerX) < 34f * dp && Math.abs((groundY - 24f * dp) - playerY) < 65f * dp) {
+                chestX = -200f * dp;
+                triggerRandomChestQuiz();
+                return;
+            }
+        }
         if (!finishGateSpawned && parkourDistanceDp >= PARKOUR_TARGET_DISTANCE_DP) {
             finishGateSpawned = true;
             finishGateX = width + 90f * dp;
