@@ -18,9 +18,9 @@ import java.util.Random;
 /**
  * Cep Telefonu Ekranı İçin Tam Ölçeklendirilmiş (DP / SP Uyumlu), Tam Ekran,
  * 3-2-1-BAŞLA! Geri Sayımlı ve 6 Farklı Parkurlu "Süper Yıldız Zıplama Macerası":
- * - Tüm yazılar, karakter, yıldızlar, platformlar, engeller ve fizik hızları telefon ekran yoğunluğuna (dp/sp)
- *   göre ölçeklendirilir; hiçbir öğe küçük kalmaz.
- * - Her bölüme başlarken ekranda büyük "3 - 2 - 1 - BAŞLA!" geri sayımı yapılır.
+ * - Hediye sandığı ve yüksek sesli anons kaldırıldı.
+ * - Fizik döngüsü (lastPhysicsStepMs) milisaniye kilidiyle sabit 60 FPS hızına kilitlendi;
+ *   ekrana art arda dokunulduğunda veya parkur değiştiğinde oyun asla hızlanmaz ve karakter kontrolden çıkmaz.
  */
 public class VeliPlatformerJumpView extends View {
 
@@ -32,7 +32,6 @@ public class VeliPlatformerJumpView extends View {
         void onCountdownTick(boolean isGo);
         void onExitRequested();
         boolean onToggleMuteRequested();
-        void onVoiceCue(String speechText);
     }
 
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -46,18 +45,8 @@ public class VeliPlatformerJumpView extends View {
     private boolean running = false;
     private boolean gameOver = false;
     private boolean soundMuted = false;
-
-    // Parkur içi 🎁 Sürpriz Hazine Sandığı (Etkileşimli Bonus Görev Kapısı)
-    private boolean chestSpawnedInStage = false;
-    private float chestX = -500f;
-    private boolean showingChestQuiz = false;
-    private String chestQuestionText = "";
-    private String chestOptLeft = "";
-    private String chestOptRight = "";
-    private boolean leftIsCorrect = true;
-    private final RectF btnChestLeftRect = new RectF();
-    private final RectF btnChestRightRect = new RectF();
-    private final RectF btnMuteRect = new RectF();
+    private boolean frameTickScheduled = false;
+    private long lastPhysicsStepMs = 0L;
 
     // 3-2-1-BAŞLA geri sayımı
     private boolean inCountdown = false;
@@ -143,10 +132,21 @@ public class VeliPlatformerJumpView extends View {
     private final List<Sparkle> sparkles = new ArrayList<>();
 
     private final RectF btnExitRect = new RectF();
+    private final RectF btnMuteRect = new RectF();
     private final RectF[] parkourTabRects = new RectF[6];
     private final RectF btnRetryRect = new RectF();
     private final RectF btnNextParkourRect = new RectF();
     private final RectF btnLobbyOnGameOverRect = new RectF();
+
+    private final Runnable frameLoopRunnable = new Runnable() {
+        @Override
+        public void run() {
+            frameTickScheduled = false;
+            if (running && !gameOver) {
+                invalidate();
+            }
+        }
+    };
 
     private static final String[] STAGE_NAMES = new String[]{
             "Zümrüt Orman Köprüleri",
@@ -194,16 +194,23 @@ public class VeliPlatformerJumpView extends View {
         DisplayMetrics dm = context.getResources().getDisplayMetrics();
         this.dp = dm.density;
         this.sp = dm.scaledDensity;
-        this.playerRadius = 23f * dp; // 46dp çapında büyük, net karakter!
+        this.playerRadius = 23f * dp;
         this.playerX = 72f * dp;
         this.groundY = 480f * dp;
         this.playerY = this.groundY - this.playerRadius;
-        this.scrollSpeed = 3.2f * dp;
+        this.scrollSpeed = 2.8f * dp;
 
         for (int i = 0; i < 6; i++) {
             parkourTabRects[i] = new RectF();
         }
         resetGame();
+    }
+
+    private void scheduleNextFrame() {
+        if (!frameTickScheduled && running && !gameOver) {
+            frameTickScheduled = true;
+            postDelayed(frameLoopRunnable, 16L);
+        }
     }
 
     public void resetGame() {
@@ -226,6 +233,7 @@ public class VeliPlatformerJumpView extends View {
         }
         loadParkourStage(this.stage);
         running = true;
+        scheduleNextFrame();
         invalidate();
     }
 
@@ -234,15 +242,13 @@ public class VeliPlatformerJumpView extends View {
         this.parkourDistanceDp = 0f;
         this.finishGateSpawned = false;
         this.finishGateX = -500f * dp;
-        this.chestSpawnedInStage = false;
-        this.chestX = -500f * dp;
-        this.showingChestQuiz = false;
         this.jumpCount = 0;
         this.playerVy = 0f;
-        float gY = (getHeight() > 200) ? (getHeight() * 0.80f) : (460f * dp);
+        float gY = (getHeight() > 200) ? (getHeight() * 0.82f) : (460f * dp);
         this.groundY = gY;
         this.playerY = gY - playerRadius;
         this.invulnerableFrames = 45;
+        this.lastPhysicsStepMs = SystemClock.elapsedRealtime();
 
         for (int i = 0; i < trailX.length; i++) {
             trailX[i] = playerX;
@@ -287,17 +293,22 @@ public class VeliPlatformerJumpView extends View {
             lastAnnouncedCountdownSecond = -1;
         }
         running = true;
+        lastPhysicsStepMs = SystemClock.elapsedRealtime();
+        scheduleNextFrame();
         invalidate();
     }
 
     public void stopGame() {
         running = false;
+        removeCallbacks(frameLoopRunnable);
+        frameTickScheduled = false;
     }
 
     public void triggerJump() {
         if (gameOver) {
             resetGame();
             running = true;
+            scheduleNextFrame();
             invalidate();
             return;
         }
@@ -306,11 +317,12 @@ public class VeliPlatformerJumpView extends View {
         }
         if (!running) {
             running = true;
-            invalidate();
+            lastPhysicsStepMs = SystemClock.elapsedRealtime();
+            scheduleNextFrame();
         }
         if (jumpCount < 2) {
-            float boost = (stage == 5) ? 1.14f : (stage == 2 ? 1.07f : 1.0f);
-            playerVy = ((jumpCount == 0) ? (-9.8f * dp) : (-8.6f * dp)) * boost;
+            float boost = (stage == 5) ? 1.12f : (stage == 2 ? 1.05f : 1.0f);
+            playerVy = ((jumpCount == 0) ? (-9.5f * dp) : (-8.3f * dp)) * boost;
             jumpCount++;
             spawnSparkles(playerX, playerY + playerRadius, 0xFFFFFFFF, 10);
             if (listener != null) {
@@ -340,31 +352,6 @@ public class VeliPlatformerJumpView extends View {
                 return true;
             }
 
-            if (showingChestQuiz) {
-                if (btnChestLeftRect.contains(tx, ty) || btnChestRightRect.contains(tx, ty)) {
-                    boolean pickedLeft = btnChestLeftRect.contains(tx, ty);
-                    boolean correct = (pickedLeft == leftIsCorrect);
-                    showingChestQuiz = false;
-                    invulnerableFrames = 60;
-                    if (correct) {
-                        score += 50;
-                        hasShield = true;
-                        spawnSparkles(playerX, playerY, 0xFFFFD600, 22);
-                        if (listener != null) {
-                            listener.onStarCollected();
-                            listener.onVoiceCue("Harika! Doğru bildin ve koruyucu kalkan kazandın!");
-                        }
-                    } else {
-                        if (listener != null) {
-                            listener.onObstacleHit();
-                        }
-                    }
-                    notifyStats();
-                    invalidate();
-                }
-                return true;
-            }
-
             for (int i = 0; i < 6; i++) {
                 if (parkourTabRects[i].contains(tx, ty)) {
                     selectParkour(i + 1);
@@ -385,6 +372,7 @@ public class VeliPlatformerJumpView extends View {
                 }
                 resetGame();
                 running = true;
+                scheduleNextFrame();
                 invalidate();
                 return true;
             }
@@ -733,10 +721,11 @@ public class VeliPlatformerJumpView extends View {
             }
         }
 
-        // 3. 3-2-1-BAŞLA! Geri Sayımı veya Fizik Güncellemesi
+        // 3. 3-2-1-BAŞLA! Geri Sayımı veya Sabit 60 FPS Fizik Güncellemesi
         int currentCountdownStep = 0;
+        long nowMs = SystemClock.elapsedRealtime();
         if (inCountdown) {
-            long elapsed = SystemClock.elapsedRealtime() - countdownStartRealtimeMs;
+            long elapsed = nowMs - countdownStartRealtimeMs;
             if (elapsed < 850L) {
                 currentCountdownStep = 3;
             } else if (elapsed < 1700L) {
@@ -747,6 +736,7 @@ public class VeliPlatformerJumpView extends View {
                 currentCountdownStep = 0;
             } else {
                 inCountdown = false;
+                lastPhysicsStepMs = nowMs;
             }
 
             if (inCountdown && currentCountdownStep != lastAnnouncedCountdownSecond) {
@@ -755,8 +745,12 @@ public class VeliPlatformerJumpView extends View {
                     listener.onCountdownTick(currentCountdownStep == 0);
                 }
             }
-        } else if (running && !gameOver && !showingChestQuiz) {
-            updatePhysicsAndSpawns(w, h, topHudHeight);
+        } else if (running && !gameOver) {
+            // Fizik adımı en fazla 14ms'de bir çalışır (dokunma veya yeniden çizim yüzünden hızlanma asla olmaz!)
+            if (nowMs - lastPhysicsStepMs >= 14L) {
+                lastPhysicsStepMs = nowMs;
+                updatePhysicsAndSpawns(w, h, topHudHeight);
+            }
         }
 
         // 4. Platformlar ve Trambolinler
@@ -780,19 +774,6 @@ public class VeliPlatformerJumpView extends View {
             }
         }
 
-        // 5A. Parkur Ortasındaki Sürpriz Hazine Sandığı (🎁)
-        if (chestSpawnedInStage && chestX > -80f * dp && !showingChestQuiz) {
-            paint.setColor(0xFFFF8F00);
-            RectF box = new RectF(chestX, groundY - 46f * dp, chestX + 52f * dp, groundY);
-            canvas.drawRoundRect(box, 8f * dp, 8f * dp, paint);
-            paint.setColor(0xFFFFD600);
-            canvas.drawRect(chestX, groundY - 26f * dp, chestX + 52f * dp, groundY - 18f * dp, paint);
-            paint.setColor(0xFFFFFFFF);
-            paint.setTextSize(20f * sp);
-            paint.setTextAlign(Paint.Align.CENTER);
-            canvas.drawText("🎁", chestX + 26f * dp, groundY - 12f * dp, paint);
-        }
-
         // 5. Parkur Bitiş Kapısı (🏁)
         if (finishGateSpawned && finishGateX > -120f * dp) {
             paint.setColor(0xFFFFD600);
@@ -807,7 +788,7 @@ public class VeliPlatformerJumpView extends View {
             canvas.drawText("🏁 BİTİŞ", finishGateX + 38f * dp, groundY - 142f * dp, paint);
         }
 
-        // 6. Toplanabilir Yıldız, Elmas, Kalkan, Mıknatıs, Kalp (Telefon ekranı için büyük boyutlu)
+        // 6. Toplanabilir Yıldız, Elmas, Kalkan, Mıknatıs, Kalp
         float colRadius = 17f * dp;
         for (Collectible col : collectibles) {
             if (col.type == 0) {
@@ -876,7 +857,7 @@ public class VeliPlatformerJumpView extends View {
             }
         }
 
-        // 8. Karakter Kuyruk İzi ve Büyük Net Karakter Çizimi
+        // 8. Karakter Kuyruk İzi ve Karakter Çizimi
         for (int i = trailX.length - 1; i > 0; i--) {
             trailX[i] = trailX[i - 1] - scrollSpeed * 0.45f;
             trailY[i] = trailY[i - 1];
@@ -898,14 +879,11 @@ public class VeliPlatformerJumpView extends View {
                 paint.setColor(0x55EA80FC);
                 canvas.drawCircle(playerX, playerY, playerRadius + 15f * dp, paint);
             }
-            // Karakter gövdesi
             paint.setColor(0xFFFF5722);
             canvas.drawCircle(playerX, playerY, playerRadius, paint);
-            // Kahraman bandanası
             paint.setColor(0xFFFFD600);
             canvas.drawRect(playerX - playerRadius * 0.85f, playerY - playerRadius * 0.55f,
                     playerX + playerRadius * 0.85f, playerY - playerRadius * 0.25f, paint);
-            // Göz akı ve göz bebeği
             paint.setColor(0xFFFFFFFF);
             canvas.drawCircle(playerX + playerRadius * 0.35f, playerY - playerRadius * 0.15f, 5.5f * dp, paint);
             paint.setColor(0xFF0F172A);
@@ -926,7 +904,7 @@ public class VeliPlatformerJumpView extends View {
             }
         }
 
-        // 10. Sağ Alt Köşede Telefon Ekranına Uygun Zıplama Butonu
+        // 10. Sağ Alt Köşede Zıplama Butonu
         if (!gameOver && !inCountdown) {
             RectF jumpPad = new RectF(w - 168f * dp, h - 66f * dp, w - 12f * dp, h - 14f * dp);
             paint.setColor(0xAA0F172A);
@@ -938,24 +916,19 @@ public class VeliPlatformerJumpView extends View {
             canvas.drawText("⬆️ ZIPLAMA (2x)", jumpPad.centerX(), jumpPad.centerY() + 5f * dp, paint);
         }
 
-        // 11. Sabit Üst Gösterge Paneli (DP/SP Ölçekli)
+        // 11. Sabit Üst Gösterge Paneli
         drawTopHudAndParkourTabs(canvas, w, topHudHeight);
 
-        // 12. 3 - 2 - 1 - BAŞLA! Geri Sayım Katmanı (DP/SP Ölçekli)
+        // 12. 3 - 2 - 1 - BAŞLA! Geri Sayım Katmanı
         if (inCountdown) {
             drawCountdownOverlay(canvas, w, h, topHudHeight, currentCountdownStep);
         }
 
-        // 12B. Sürpriz Hazine Sandığı Bonus Görev Kartı
-        if (showingChestQuiz) {
-            drawChestQuizOverlay(canvas, w, h);
-        }
-
-        // 13. Oyun Bitti Ekranı (DP/SP Ölçekli)
+        // 13. Oyun Bitti Ekranı veya Tekil 60 FPS Zamanlayıcı
         if (gameOver) {
             drawGameOverOverlay(canvas, w, h);
         } else if (running) {
-            postInvalidateDelayed(16L);
+            scheduleNextFrame();
         }
     }
 
@@ -995,7 +968,6 @@ public class VeliPlatformerJumpView extends View {
         paint.setColor(0xDD0F172A);
         canvas.drawRect(0, 0, w, hudH, paint);
 
-        // Üst Satır: 6 Parkur Seçme Sekmesi
         float margin = 4f * dp;
         float tabW = (w - margin * 7f) / 6f;
         float tabTop = 6f * dp;
@@ -1014,7 +986,6 @@ public class VeliPlatformerJumpView extends View {
             canvas.drawText(SHORT_TAB_NAMES[i], parkourTabRects[i].centerX(), tabBottom - 11f * dp, paint);
         }
 
-        // Alt Satır Sol: ⬅️ Çıkış Butonu + 3 Kalp (❤️❤️❤️)
         float row2Top = 50f * dp;
         float row2Bottom = 88f * dp;
         btnExitRect.set(6f * dp, row2Top, 82f * dp, row2Bottom);
@@ -1036,9 +1007,8 @@ public class VeliPlatformerJumpView extends View {
         if (magnetFrames > 0) heartsSb.append("🧲");
         canvas.drawText(heartsSb.toString(), 88f * dp, row2Bottom - 11f * dp, paint);
 
-        // Alt Satır Orta: Parkur İlerleme Çubuğu (%0 -> %100 🏁)
-        float barLeft = w * 0.48f;
-        float barRight = w * 0.74f;
+        float barLeft = w * 0.46f;
+        float barRight = w * 0.70f;
         float barTop = 56f * dp;
         float barBottom = 82f * dp;
         paint.setColor(0xFF334155);
@@ -1049,12 +1019,11 @@ public class VeliPlatformerJumpView extends View {
         canvas.drawRoundRect(new RectF(barLeft, barTop, barLeft + (barRight - barLeft) * ratio, barBottom), 8f * dp, 8f * dp, paint);
 
         paint.setColor(0xFFFFFFFF);
-        paint.setTextSize(12.5f * sp);
+        paint.setTextSize(12f * sp);
         paint.setTextAlign(Paint.Align.CENTER);
         int pct = (int) (ratio * 100f);
         canvas.drawText("🏁 %" + pct, (barLeft + barRight) * 0.5f, barBottom - 7f * dp, paint);
 
-        // Alt Satır Sağ: Ses Aç/Kapat Butonu (🔊/🔇) ve Puan
         btnMuteRect.set(w - 42f * dp, row2Top, w - 6f * dp, row2Bottom);
         paint.setColor(0xFF334155);
         canvas.drawRoundRect(btnMuteRect, 8f * dp, 8f * dp, paint);
@@ -1067,85 +1036,6 @@ public class VeliPlatformerJumpView extends View {
         paint.setTextSize(15f * sp);
         paint.setColor(0xFFFFD600);
         canvas.drawText("⭐ " + score, w - 48f * dp, row2Bottom - 11f * dp, paint);
-    }
-
-    private void triggerRandomChestQuiz() {
-        showingChestQuiz = true;
-        int qType = random.nextInt(4);
-        if (qType == 0) {
-            int a = 6 + random.nextInt(15 * stage);
-            int b = 5 + random.nextInt(12 * stage);
-            int ans = a + b;
-            chestQuestionText = "🎁 Hazine Şifresi: " + a + " + " + b + " kaçtır?";
-            leftIsCorrect = random.nextBoolean();
-            chestOptLeft = leftIsCorrect ? String.valueOf(ans) : String.valueOf(ans + 3);
-            chestOptRight = leftIsCorrect ? String.valueOf(ans + 4) : String.valueOf(ans);
-        } else if (qType == 1) {
-            int a = 3 + random.nextInt(7);
-            int b = 3 + random.nextInt(7);
-            int ans = a * b;
-            chestQuestionText = "🎁 Hazine Şifresi: " + a + " × " + b + " kaçtır?";
-            leftIsCorrect = random.nextBoolean();
-            chestOptLeft = leftIsCorrect ? String.valueOf(ans) : String.valueOf(ans + a);
-            chestOptRight = leftIsCorrect ? String.valueOf(ans + b) : String.valueOf(ans);
-        } else if (qType == 2) {
-            String[][] pairs = new String[][]{
-                    {"'Özgürlük' eş anlamlısı?", "Hürriyet", "Esaret"},
-                    {"'İhtiyar' eş anlamlısı?", "Yaşlı", "Genç"},
-                    {"'Cesur' zıt anlamlısı?", "Korkak", "Kahraman"},
-                    {"'Taze' zıt anlamlısı?", "Bayat", "Yeni"}
-            };
-            String[] p = pairs[random.nextInt(pairs.length)];
-            chestQuestionText = "🎁 Hazine Parolası: " + p[0];
-            leftIsCorrect = random.nextBoolean();
-            chestOptLeft = leftIsCorrect ? p[1] : p[2];
-            chestOptRight = leftIsCorrect ? p[2] : p[1];
-        } else {
-            String[][] sci = new String[][]{
-                    {"Güneş'e en yakın gezegen?", "Merkür", "Mars"},
-                    {"Kuvveti ölçen alet?", "Dinamometre", "Termometre"},
-                    {"Türkiye'nin başkenti?", "Ankara", "İstanbul"},
-                    {"Pusulanın renkli ucu?", "Kuzey", "Güney"}
-            };
-            String[] s = sci[random.nextInt(sci.length)];
-            chestQuestionText = "🎁 Hazine Sorusu: " + s[0];
-            leftIsCorrect = random.nextBoolean();
-            chestOptLeft = leftIsCorrect ? s[1] : s[2];
-            chestOptRight = leftIsCorrect ? s[2] : s[1];
-        }
-    }
-
-    private void drawChestQuizOverlay(Canvas canvas, int w, int h) {
-        paint.setColor(0xBB0F172A);
-        canvas.drawRect(0, 0, w, h, paint);
-
-        float cy = h * 0.50f;
-        RectF card = new RectF(w * 0.07f, cy - 115f * dp, w * 0.93f, cy + 115f * dp);
-        paint.setColor(0xFF1E293B);
-        canvas.drawRoundRect(card, 20f * dp, 20f * dp, paint);
-
-        paint.setColor(0xFFFFD600);
-        paint.setTextAlign(Paint.Align.CENTER);
-        paint.setTextSize(17f * sp);
-        paint.setFakeBoldText(true);
-        canvas.drawText("🎁 SÜRPRİZ HAZİNE SANDIĞI (+50 Puan & 🛡️ Kalkan)", w * 0.5f, cy - 72f * dp, paint);
-
-        paint.setColor(0xFFFFFFFF);
-        paint.setTextSize(16f * sp);
-        canvas.drawText(chestQuestionText, w * 0.5f, cy - 22f * dp, paint);
-
-        btnChestLeftRect.set(w * 0.11f, cy + 18f * dp, w * 0.48f, cy + 82f * dp);
-        btnChestRightRect.set(w * 0.52f, cy + 18f * dp, w * 0.89f, cy + 82f * dp);
-
-        paint.setColor(0xFF16A34A);
-        canvas.drawRoundRect(btnChestLeftRect, 14f * dp, 14f * dp, paint);
-        paint.setColor(0xFF2563EB);
-        canvas.drawRoundRect(btnChestRightRect, 14f * dp, 14f * dp, paint);
-
-        paint.setColor(0xFFFFFFFF);
-        paint.setTextSize(17f * sp);
-        canvas.drawText(chestOptLeft, btnChestLeftRect.centerX(), btnChestLeftRect.centerY() + 6f * dp, paint);
-        canvas.drawText(chestOptRight, btnChestRightRect.centerX(), btnChestRightRect.centerY() + 6f * dp, paint);
     }
 
     private void drawGameOverOverlay(Canvas canvas, int w, int h) {
@@ -1191,12 +1081,12 @@ public class VeliPlatformerJumpView extends View {
     }
 
     private void updatePhysicsAndSpawns(int width, int height, float topHudHeight) {
-        animTick += 0.09f;
+        animTick += 0.08f;
         if (invulnerableFrames > 0) invulnerableFrames--;
         if (magnetFrames > 0) magnetFrames--;
 
-        scrollSpeed = (3.0f + stage * 0.24f) * dp;
-        float gravity = ((stage == 5) ? 0.36f : (stage == 2 ? 0.41f : 0.47f)) * dp;
+        scrollSpeed = (2.6f + stage * 0.20f) * dp;
+        float gravity = ((stage == 5) ? 0.35f : (stage == 2 ? 0.40f : 0.45f)) * dp;
 
         float prevBottom = playerY + playerRadius;
         playerY += playerVy;
@@ -1207,10 +1097,10 @@ public class VeliPlatformerJumpView extends View {
         Iterator<Platform> platIt = platforms.iterator();
         while (platIt.hasNext()) {
             Platform p = platIt.next();
-            float extraDx = p.movingHorizontally ? (float) Math.cos(animTick + p.movePhase) * 0.9f * dp : 0f;
+            float extraDx = p.movingHorizontally ? (float) Math.cos(animTick + p.movePhase) * 0.8f * dp : 0f;
             p.x -= (scrollSpeed + extraDx);
             if (p.movingVertically) {
-                p.y = p.baseY + (float) Math.sin(animTick + p.movePhase) * 20f * dp;
+                p.y = p.baseY + (float) Math.sin(animTick + p.movePhase) * 18f * dp;
             }
 
             if (p.hasTrampoline) {
@@ -1219,7 +1109,7 @@ public class VeliPlatformerJumpView extends View {
                 if (playerVy >= 0 && playerX + playerRadius * 0.6f >= tx && playerX - playerRadius * 0.6f <= tx + tw
                         && prevBottom <= p.y + 10f * dp && newBottom >= p.y - 14f * dp) {
                     playerY = p.y - 14f * dp - playerRadius;
-                    playerVy = -12.6f * dp;
+                    playerVy = -12.0f * dp;
                     jumpCount = 1;
                     spawnSparkles(playerX, playerY + playerRadius, 0xFFFF1744, 15);
                     if (listener != null) listener.onJumpTriggered();
@@ -1275,18 +1165,6 @@ public class VeliPlatformerJumpView extends View {
         }
 
         parkourDistanceDp += (scrollSpeed / dp) * 0.35f;
-        if (!chestSpawnedInStage && parkourDistanceDp >= PARKOUR_TARGET_DISTANCE_DP * 0.45f) {
-            chestSpawnedInStage = true;
-            chestX = width + 70f * dp;
-        }
-        if (chestSpawnedInStage && chestX > -90f * dp) {
-            chestX -= scrollSpeed;
-            if (Math.abs((chestX + 26f * dp) - playerX) < 34f * dp && Math.abs((groundY - 24f * dp) - playerY) < 65f * dp) {
-                chestX = -200f * dp;
-                triggerRandomChestQuiz();
-                return;
-            }
-        }
         if (!finishGateSpawned && parkourDistanceDp >= PARKOUR_TARGET_DISTANCE_DP) {
             finishGateSpawned = true;
             finishGateX = width + 90f * dp;
@@ -1365,7 +1243,7 @@ public class VeliPlatformerJumpView extends View {
             Obstacle ob = obIt.next();
             ob.x -= scrollSpeed;
             if (ob.type == 1) {
-                ob.y = ob.baseY + (float) Math.sin(animTick * 1.4f + ob.phase) * 24f * dp;
+                ob.y = ob.baseY + (float) Math.sin(animTick * 1.4f + ob.phase) * 22f * dp;
             }
 
             boolean hitX = (playerX + playerRadius * 0.68f > ob.x) && (playerX - playerRadius * 0.68f < ob.x + ob.width);

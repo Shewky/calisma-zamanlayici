@@ -434,11 +434,6 @@ public class EntertainmentActivity extends Activity {
                 btnToggleGameMusic.setText(muted ? "🔇 Ses: Kapalı" : "🎵 Ses: Açık");
                 return muted;
             }
-
-            @Override
-            public void onVoiceCue(String speechText) {
-                speakViaService(speechText);
-            }
         });
         frameJumpGameCanvas.addView(jumpGameView);
 
