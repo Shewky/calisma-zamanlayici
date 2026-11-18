@@ -493,7 +493,111 @@ public class VeliGameMusicSynthesizer {
                         phase += (2.0 * Math.PI * freq) / SAMPLE_RATE;
                         double env = Math.sin(Math.PI * t) * (1.0 - t * 0.4);
                         double chirp = Math.sin(phase) * 0.55 + (rng.nextFloat() * 2f - 1f) * 0.35;
-                        buf[i] = (short) (chirp * env * 9500);
+                        buf[i] = (short) (chirp * env * 2600);
+                    }
+                    playOneShotPcm(buf);
+                } catch (Exception ignored) {
+                }
+            }
+        }).start();
+    }
+
+    private int lastScreamVariant = -1;
+
+    public void playRandomHumanScreamEffect() {
+        if (muted) return;
+        final Random rng = new Random();
+        int variant = rng.nextInt(6);
+        if (variant == lastScreamVariant) {
+            variant = (variant + 1) % 6;
+        }
+        lastScreamVariant = variant;
+        final int v = variant;
+
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    Thread.sleep(70L);
+                    // 6 farklı vokal formant profili: (F1, F2, F3, startHz, peakHz, endHz, durationMs)
+                    double[][] profiles = new double[][]{
+                            {760, 1260, 2600, 520, 620, 260, 480}, // Yüksekten düşen panik "Aaaah!"
+                            {480, 900, 2380, 340, 390, 165, 520},  // Kalın erkek bağırışı "Ooooh!"
+                            {540, 1860, 2560, 460, 560, 220, 430}, // Keskin çığlık "Eeeey!"
+                            {710, 1420, 2520, 360, 640, 270, 540}, // Yükselip düşen "Yaaah!"
+                            {370, 790, 2260, 300, 330, 145, 500},  // Şaşkın homurtu "Uuuuh!"
+                            {690, 1980, 2760, 610, 710, 380, 390}  // Kısa ince çığlık "Aiiiy!"
+                    };
+                    double[] p = profiles[v];
+                    double jitterScale = 0.92 + rng.nextDouble() * 0.16;
+                    double f1 = p[0] * (0.95 + rng.nextDouble() * 0.10);
+                    double f2 = p[1] * (0.95 + rng.nextDouble() * 0.10);
+                    double f3 = p[2];
+                    double startHz = p[3] * jitterScale;
+                    double peakHz = p[4] * jitterScale;
+                    double endHz = p[5] * jitterScale;
+                    int durMs = (int) (p[6] * (0.92 + rng.nextDouble() * 0.18));
+
+                    int samples = (SAMPLE_RATE * durMs) / 1000;
+                    short[] buf = new short[samples];
+
+                    // 3 paralel biquad rezonans filtresi (F1, F2, F3)
+                    double[][] bq = new double[3][4]; // x1, x2, y1, y2
+                    double[] freqs = new double[]{f1, f2, f3};
+                    double[] bws = new double[]{95.0, 130.0, 180.0};
+                    double[] gains = new double[]{1.0, 0.55, 0.25};
+
+                    double glottalPhase = 0.0;
+                    double vibPhase = 0.0;
+
+                    for (int i = 0; i < samples; i++) {
+                        double t = (double) i / samples;
+                        double pitchHz;
+                        if (t < 0.22) {
+                            double k = t / 0.22;
+                            pitchHz = startHz + (peakHz - startHz) * k;
+                        } else {
+                            double k = (t - 0.22) / 0.78;
+                            pitchHz = peakHz + (endHz - peakHz) * Math.pow(k, 0.85);
+                        }
+                        vibPhase += (2.0 * Math.PI * 6.4) / SAMPLE_RATE;
+                        double vibrato = 1.0 + 0.032 * Math.sin(vibPhase);
+                        double jitter = 1.0 + (rng.nextDouble() - 0.5) * 0.025;
+                        glottalPhase += (pitchHz * vibrato * jitter) / SAMPLE_RATE;
+                        if (glottalPhase >= 1.0) glottalPhase -= 1.0;
+
+                        // Rosenberg benzeri doğal gırtlak darbesi + hafif nefes gürültüsü
+                        double gp = glottalPhase;
+                        double glottal;
+                        if (gp < 0.45) {
+                            glottal = 0.5 * (1.0 - Math.cos(Math.PI * gp / 0.45));
+                        } else if (gp < 0.65) {
+                            glottal = Math.cos(Math.PI * (gp - 0.45) / 0.40);
+                        } else {
+                            glottal = 0.0;
+                        }
+                        glottal = (glottal - 0.32) + (rng.nextDouble() * 2.0 - 1.0) * 0.14;
+
+                        double vocalSum = 0.0;
+                        for (int fIdx = 0; fIdx < 3; fIdx++) {
+                            double w0 = 2.0 * Math.PI * freqs[fIdx] / SAMPLE_RATE;
+                            double r = Math.exp(-Math.PI * bws[fIdx] / SAMPLE_RATE);
+                            double a1 = -2.0 * r * Math.cos(w0);
+                            double a2 = r * r;
+                            double b0 = (1.0 - r) * gains[fIdx];
+                            double y = b0 * (glottal - bq[fIdx][1]) - a1 * bq[fIdx][2] - a2 * bq[fIdx][3];
+                            bq[fIdx][1] = bq[fIdx][0];
+                            bq[fIdx][0] = glottal;
+                            bq[fIdx][3] = bq[fIdx][2];
+                            bq[fIdx][2] = y;
+                            vocalSum += y;
+                        }
+
+                        double attack = Math.min(1.0, t / 0.07);
+                        double release = Math.min(1.0, (1.0 - t) / 0.24);
+                        double env = attack * release;
+                        double out = Math.tanh(vocalSum * 2.2) * env;
+                        buf[i] = (short) (out * 13500);
                     }
                     playOneShotPcm(buf);
                 } catch (Exception ignored) {

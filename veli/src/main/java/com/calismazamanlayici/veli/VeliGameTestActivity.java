@@ -532,6 +532,7 @@ public class VeliGameTestActivity extends Activity {
             @Override
             public void onCrashSound() {
                 musicSynth.playCrashEffect();
+                musicSynth.playRandomHumanScreamEffect();
             }
 
             @Override

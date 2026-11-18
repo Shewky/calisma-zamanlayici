@@ -547,6 +547,7 @@ public class EntertainmentActivity extends Activity {
             @Override
             public void onCrashSound() {
                 musicSynth.playCrashEffect();
+                musicSynth.playRandomHumanScreamEffect();
             }
 
             @Override
