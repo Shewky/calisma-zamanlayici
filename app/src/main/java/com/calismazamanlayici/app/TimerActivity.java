@@ -191,18 +191,6 @@ public class TimerActivity extends Activity {
     }
 
     @Override
-    protected void onUserLeaveHint() {
-        super.onUserLeaveHint();
-        boolean canLeave = StudyDatabaseHelper.isParentAlwaysAllowOtherFeatures(this)
-                || (serviceBound && timerService != null
-                && timerService.getCurrentPhase() == TimerForegroundService.PHASE_BREAK
-                && StudyDatabaseHelper.isOneTimeBreakPhoneGranted(this));
-        if (!canLeave && serviceBound && timerService != null) {
-            timerService.forceBringStudentAppToFront();
-        }
-    }
-
-    @Override
     public void onBackPressed() {
         boolean alwaysAllowed = StudyDatabaseHelper.isParentAlwaysAllowOtherFeatures(this);
         boolean inBreak = serviceBound && timerService != null

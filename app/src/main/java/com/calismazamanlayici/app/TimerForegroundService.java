@@ -133,11 +133,14 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
 
     private static volatile boolean anyStudentActivityInForeground = false;
     private static volatile boolean systemSettingsOrInstallerExempt = false;
+    private static volatile long lastActivityPausedAtMs = 0L;
 
     public static void setStudentActivityInForeground(boolean inForeground) {
         anyStudentActivityInForeground = inForeground;
         if (inForeground) {
             systemSettingsOrInstallerExempt = false;
+        } else {
+            lastActivityPausedAtMs = SystemClock.elapsedRealtime();
         }
     }
 
@@ -168,7 +171,11 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
     private final Runnable launcherLockWatchdog = new Runnable() {
         @Override
         public void run() {
-            if (!anyStudentActivityInForeground && !systemSettingsOrInstallerExempt && !isBackgroundAllowedNow()) {
+            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            boolean screenOn = (pm == null) || pm.isInteractive();
+            long pausedForMs = SystemClock.elapsedRealtime() - lastActivityPausedAtMs;
+            if (screenOn && !anyStudentActivityInForeground && pausedForMs >= 1500L
+                    && !systemSettingsOrInstallerExempt && !isBackgroundAllowedNow()) {
                 forceBringStudentAppToFront();
             }
             handler.postDelayed(this, 1200L);

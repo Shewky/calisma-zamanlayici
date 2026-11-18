@@ -287,7 +287,8 @@ public class CarRacingGameView extends View {
             drawCountdownOverlay(canvas, w, h, cdStep);
         } else if (levelCleared || gameOver) {
             drawEndModal(canvas, w, h);
-        } else if (running) {
+        }
+        if (running && !gameOver && !levelCleared) {
             scheduleNext();
         }
     }
