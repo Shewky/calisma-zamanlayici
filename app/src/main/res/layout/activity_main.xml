@@ -216,6 +216,18 @@
                     android:textColor="#FFFFFF"
                     android:textStyle="bold"
                     android:visibility="gone" />
+
+                <Button
+                    android:id="@+id/btnMainBreakPhonePermission"
+                    android:layout_width="match_parent"
+                    android:layout_height="54dp"
+                    android:layout_marginTop="8dp"
+                    android:text="📱 Veli'den Bir Seferlik Telefon İzni İste"
+                    android:textAllCaps="false"
+                    android:textColor="#FFFFFF"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    android:visibility="gone" />
             </LinearLayout>
 
             <!-- Ana Çalışma Seçenekleri: Ödeve Başla, Test Çözümleri, Kitap Oku -->

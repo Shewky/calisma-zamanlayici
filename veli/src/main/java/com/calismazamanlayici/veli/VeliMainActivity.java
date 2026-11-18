@@ -72,6 +72,27 @@ public class VeliMainActivity extends Activity {
         foregroundVisible = visible;
     }
 
+    public static void notifyBreakPermissionRequestIfVisible(final String childId, final String childName, final String childIp, final String promptText) {
+        if (currentInstance != null && !currentInstance.isFinishing() && foregroundVisible) {
+            currentInstance.runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    VeliStorage.clearPendingBreakPhoneRequest(currentInstance);
+                    new AlertDialog.Builder(currentInstance)
+                            .setTitle("📱 Mola Telefon Kullanım İzni")
+                            .setMessage(promptText)
+                            .setPositiveButton("Evet, İzin Ver", (d, w) -> {
+                                ParentBackgroundService.sendBreakPhoneDecisionToChild(currentInstance, childId, childIp, true);
+                            })
+                            .setNegativeButton("Hayır, İzin Verme", (d, w) -> {
+                                ParentBackgroundService.sendBreakPhoneDecisionToChild(currentInstance, childId, childIp, false);
+                            })
+                            .show();
+                }
+            });
+        }
+    }
+
     public static void refreshLastMessageOnScreenIfVisible() {
         if (currentInstance != null && !currentInstance.isFinishing()) {
             currentInstance.runOnUiThread(currentInstance::updateOtherParentUi);
@@ -496,6 +517,13 @@ public class VeliMainActivity extends Activity {
         applyVeliTheme();
         refreshUiState();
         autoRefreshActive = true;
+        String pendName = VeliStorage.getPendingBreakReqChildName(this);
+        if (pendName != null && !pendName.isEmpty()) {
+            String pendId = VeliStorage.getPendingBreakReqChildId(this);
+            String pendIp = VeliStorage.getPendingBreakReqChildIp(this);
+            notifyBreakPermissionRequestIfVisible(pendId, pendName, pendIp,
+                    pendName + " molada bir seferlik Telefonun Diğer özelliklerini kullanmak istiyor izin veriyor musun?");
+        }
         uiHandler.removeCallbacks(liveStatusPoller);
         uiHandler.post(liveStatusPoller);
         ParentBackgroundService.scanLanAndSyncChildren(this, false, new Runnable() {

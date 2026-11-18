@@ -5,7 +5,9 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.app.AlertDialog;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.CalendarView;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -51,6 +53,10 @@ public class ChildDetailActivity extends Activity {
     private Button btnSendRolePraise;
     private Button btnSendAferinPraise;
     private Button btnSendCustomPraise;
+    private CheckBox cbAllowOtherPhoneFeatures;
+    private Button btnGrantOneTimeBreakPermissionNow;
+    private boolean updatingCheckboxFromReport = false;
+    private static ChildDetailActivity activeInstance = null;
 
     private CalendarView calendarViewVeliChild;
     private TextView tvVeliSelectedDateTitle;
@@ -102,6 +108,8 @@ public class ChildDetailActivity extends Activity {
         btnSendRolePraise = findViewById(R.id.btnSendRolePraise);
         btnSendAferinPraise = findViewById(R.id.btnSendAferinPraise);
         btnSendCustomPraise = findViewById(R.id.btnSendCustomPraise);
+        cbAllowOtherPhoneFeatures = findViewById(R.id.cbAllowOtherPhoneFeatures);
+        btnGrantOneTimeBreakPermissionNow = findViewById(R.id.btnGrantOneTimeBreakPermissionNow);
 
         calendarViewVeliChild = findViewById(R.id.calendarViewVeliChild);
         tvVeliSelectedDateTitle = findViewById(R.id.tvVeliSelectedDateTitle);
@@ -124,6 +132,24 @@ public class ChildDetailActivity extends Activity {
         btnSendCustomPraise.setBackground(VeliThemeHelper.createButtonDrawable(this, p.primary));
         btnDirectCallFromDetail.setBackground(VeliThemeHelper.createButtonDrawable(this, p.primaryDark));
         btnBack.setBackground(VeliThemeHelper.createButtonDrawable(this, p.primary));
+        if (btnGrantOneTimeBreakPermissionNow != null) {
+            btnGrantOneTimeBreakPermissionNow.setBackground(VeliThemeHelper.createButtonDrawable(this, p.accent));
+            btnGrantOneTimeBreakPermissionNow.setOnClickListener(v -> {
+                ParentBackgroundService.sendBreakPhoneDecisionToChild(ChildDetailActivity.this, childId, childIp, true);
+            });
+        }
+        if (cbAllowOtherPhoneFeatures != null) {
+            cbAllowOtherPhoneFeatures.setChecked(VeliStorage.isChildAllowedOtherPhoneFeatures(this, childId));
+            cbAllowOtherPhoneFeatures.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                if (updatingCheckboxFromReport) return;
+                ParentBackgroundService.pushAlwaysAllowPolicyToChild(ChildDetailActivity.this, childId, childIp, isChecked);
+                Toast.makeText(ChildDetailActivity.this,
+                        isChecked
+                                ? "✅ Öğrencinin telefonun diğer özelliklerini kullanabilmesi açıldı!"
+                                : "🔒 Öğrenci cihazı yalnızca Çalışma Zamanlayıcı ana ekran moduna kilitlendi!",
+                        Toast.LENGTH_SHORT).show();
+            });
+        }
 
         tvDetailChildName.setText("👤 " + childName + " • Canlı Takip ve Takvim");
 
@@ -200,19 +226,62 @@ public class ChildDetailActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        activeInstance = this;
         VeliMainActivity.setForegroundVisible(true);
         refreshRoleBasedPraiseLabels();
         polling = true;
         uiHandler.removeCallbacks(detailPoller);
         uiHandler.post(detailPoller);
+        checkAndShowPendingBreakRequestDialog();
     }
 
     @Override
     protected void onPause() {
+        if (activeInstance == this) {
+            activeInstance = null;
+        }
         VeliMainActivity.setForegroundVisible(false);
         polling = false;
         uiHandler.removeCallbacks(detailPoller);
         super.onPause();
+    }
+
+    private void checkAndShowPendingBreakRequestDialog() {
+        String pendingId = VeliStorage.getPendingBreakReqChildId(this);
+        String pendingName = VeliStorage.getPendingBreakReqChildName(this);
+        String pendingIp = VeliStorage.getPendingBreakReqChildIp(this);
+        if (pendingName != null && !pendingName.isEmpty()
+                && (pendingId.isEmpty() || childId.isEmpty() || pendingId.equalsIgnoreCase(childId))) {
+            showBreakPermissionApprovalDialog(pendingId, pendingName, pendingIp,
+                    pendingName + " molada bir seferlik Telefonun Diğer özelliklerini kullanmak istiyor izin veriyor musun?");
+        }
+    }
+
+    public static void notifyBreakPermissionRequestIfVisible(final String reqChildId, final String reqChildName, final String reqChildIp, final String promptText) {
+        final ChildDetailActivity inst = activeInstance;
+        if (inst != null && !inst.isFinishing()) {
+            inst.runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    inst.showBreakPermissionApprovalDialog(reqChildId, reqChildName, reqChildIp, promptText);
+                }
+            });
+        }
+    }
+
+    private void showBreakPermissionApprovalDialog(final String reqChildId, final String reqChildName, final String reqChildIp, String promptText) {
+        if (isFinishing()) return;
+        VeliStorage.clearPendingBreakPhoneRequest(this);
+        new AlertDialog.Builder(this)
+                .setTitle("📱 Mola Telefon Kullanım İzni")
+                .setMessage(promptText)
+                .setPositiveButton("Evet, İzin Ver", (d, w) -> {
+                    ParentBackgroundService.sendBreakPhoneDecisionToChild(ChildDetailActivity.this, reqChildId, reqChildIp, true);
+                })
+                .setNegativeButton("Hayır, İzin Verme", (d, w) -> {
+                    ParentBackgroundService.sendBreakPhoneDecisionToChild(ChildDetailActivity.this, reqChildId, reqChildIp, false);
+                })
+                .show();
     }
 
     private void checkChildOnlineBeforeDetailCall() {
@@ -404,6 +473,13 @@ public class ChildDetailActivity extends Activity {
         String elapsedFmt = report.optString("subjectElapsedFormatted", "0 sn");
         String todayFmt = report.optString("todayTotalFormatted", "0 dk");
         int todayCount = report.optInt("todaySessionCount", 0);
+        if (report.has("allowOtherPhoneFeatures") && cbAllowOtherPhoneFeatures != null) {
+            boolean remoteAllow = report.optBoolean("allowOtherPhoneFeatures", false);
+            VeliStorage.setChildAllowedOtherPhoneFeatures(this, childId, remoteAllow);
+            updatingCheckboxFromReport = true;
+            cbAllowOtherPhoneFeatures.setChecked(remoteAllow);
+            updatingCheckboxFromReport = false;
+        }
 
         tvDetailChildName.setText("👤 " + latestName + " (" + grade + ". Sınıf)");
         tvDetailLivePhase.setText(phaseText);

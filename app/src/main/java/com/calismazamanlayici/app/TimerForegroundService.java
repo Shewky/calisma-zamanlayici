@@ -113,6 +113,7 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
         public void run() {
             if (currentPhase == PHASE_BREAK && isPaused) {
                 isPaused = false;
+                StudyDatabaseHelper.clearOneTimeBreakPermissions(TimerForegroundService.this);
                 currentPhase = PHASE_POST_BREAK_PROMPT;
                 remainingSeconds = 0;
                 carriedCycleSeconds = 0;
@@ -124,8 +125,53 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
                 announce(msg, true);
                 Toast.makeText(TimerForegroundService.this, "⏰ " + msg + "! Hadi derse dönelim.", Toast.LENGTH_LONG).show();
                 updateForegroundNotification();
+                forceBringStudentAppToFront();
                 bringTimerActivityToFront();
             }
+        }
+    };
+
+    private static volatile boolean anyStudentActivityInForeground = false;
+    private static volatile boolean systemSettingsOrInstallerExempt = false;
+
+    public static void setStudentActivityInForeground(boolean inForeground) {
+        anyStudentActivityInForeground = inForeground;
+        if (inForeground) {
+            systemSettingsOrInstallerExempt = false;
+        }
+    }
+
+    public static void setSystemExemptLaunch(boolean exempt) {
+        systemSettingsOrInstallerExempt = exempt;
+    }
+
+    public boolean isBackgroundAllowedNow() {
+        if (StudyDatabaseHelper.isParentAlwaysAllowOtherFeatures(this)) {
+            return true;
+        }
+        return currentPhase == PHASE_BREAK && StudyDatabaseHelper.isOneTimeBreakPhoneGranted(this);
+    }
+
+    public void forceBringStudentAppToFront() {
+        try {
+            Class<?> targetCls = (currentPhase == PHASE_STUDY || currentPhase == PHASE_BREAK
+                    || currentPhase == PHASE_READY_TO_START || currentPhase == PHASE_POST_BREAK_PROMPT)
+                    ? TimerActivity.class : MainActivity.class;
+            Intent i = new Intent(this, targetCls);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+            startActivity(i);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private final Runnable launcherLockWatchdog = new Runnable() {
+        @Override
+        public void run() {
+            if (!anyStudentActivityInForeground && !systemSettingsOrInstallerExempt && !isBackgroundAllowedNow()) {
+                forceBringStudentAppToFront();
+            }
+            handler.postDelayed(this, 1200L);
         }
     };
 
@@ -175,6 +221,7 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
         tts = new TextToSpeech(getApplicationContext(), this);
         lanSyncServer = new LanSyncServer(this);
         lanSyncServer.start();
+        handler.postDelayed(launcherLockWatchdog, 1500L);
         try {
             registerReceiver(batteryReceiver, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
         } catch (Exception ignored) {
@@ -388,6 +435,7 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
                 carriedCycleSeconds = 0;
                 currentPhase = PHASE_BREAK;
                 remainingSeconds = StudyDatabaseHelper.FULL_BREAK_CYCLE_SECONDS;
+                StudyDatabaseHelper.clearOneTimeBreakPermissions(this);
                 breakWarningAnnounced = false;
                 wakeScreenBriefly();
                 announce("Mola zamanı", true);
@@ -402,6 +450,7 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
             }
 
             if (remainingSeconds <= 0) {
+                StudyDatabaseHelper.clearOneTimeBreakPermissions(TimerForegroundService.this);
                 currentPhase = PHASE_POST_BREAK_PROMPT;
                 remainingSeconds = 0;
                 carriedCycleSeconds = 0;
@@ -410,6 +459,7 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
 
                 wakeScreenBriefly();
                 announce("Bu dersten mi devam edeceksin", true);
+                forceBringStudentAppToFront();
                 bringTimerActivityToFront();
             }
         }
@@ -683,6 +733,7 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
     public void onDestroy() {
         handler.removeCallbacks(tickRunnable);
         handler.removeCallbacks(longPausedBreakWatchdog);
+        handler.removeCallbacks(launcherLockWatchdog);
         try {
             unregisterReceiver(batteryReceiver);
         } catch (Exception ignored) {

@@ -141,6 +141,26 @@ public class PuzzleTowerGameView extends View {
     // 11: Gölge Oyunu Kapısı (3 gölge parçasını döndürerek anahtar şeklini oluştur)
     private final int[] shadowPieces = new int[]{1, 3, 2};
 
+    // 12..19 Yeni Benzersiz Kat Bulmacaları (Hiçbir kat tekrar etmez!)
+    // 12 (Kat 4): Guguklu Saat Akrep-Yelkovan Ayarı
+    private int clockHour = 6;
+    private int clockTargetHour = 9;
+    // 13 (Kat 5): Oyuncak Tren Rayı Döndürme
+    private final int[] railTiles = new int[]{1, 2, 1, 3};
+    // 14 (Kat 9): 3 Katlı Düğün Pastası Kulesi Dizme
+    private int cakeBuiltLayers = 0;
+    // 15 (Kat 10): Şeker Fırını Derece Ayarı
+    private final int[] ovenDials = new int[]{0, 2, 1};
+    private final int[] ovenTargets = new int[]{2, 2, 2};
+    // 16 (Kat 14): Renkli Kelebekleri Çiçeklerine Eşleştirme
+    private final int[] butterflyMatches = new int[]{1, 2, 0};
+    // 17 (Kat 15): Arı Peteği Altıgen Bal Yolu
+    private final boolean[] honeycombLit = new boolean[]{false, true, false, false, true};
+    // 18 (Kat 19): Teleskop Merceği Odaklama Halkaları
+    private final int[] lensRings = new int[]{2, 1, 3};
+    // 19 (Kat 20): Büyük Kule Kristali 4 Parça Final Birleştirme
+    private int finalCrystalPieces = 0;
+
     // Kule Müzesi Etkileşimi
     private int museumDanceTimer = 0;
     private int activeMuseumItem = -1;
@@ -221,6 +241,7 @@ public class PuzzleTowerGameView extends View {
                 .putInt("equippedBag", equippedBag)
                 .putInt("ownedMask", ownedMask)
                 .apply();
+        BackupManager.saveStudentBackupAsync(getContext());
     }
 
     private int getZoneIndexForFloor(int floor) {
@@ -249,8 +270,13 @@ public class PuzzleTowerGameView extends View {
         this.activeWireDrag = -1;
 
         int zone = getZoneIndexForFloor(floor);
-        int subType = (floor - 1) % 3;
-        this.activePuzzleType = zone * 3 + subType;
+        int[] floorToUniquePuzzle = new int[]{
+                0, 1, 2, 12, 13,   // Kat 1-5 (1. Bölge: 5 farklı oyuncak & saat bulmacası)
+                3, 4, 5, 14, 15,   // Kat 6-10 (2. Bölge: 5 farklı dev mutfak & şekerleme bulmacası)
+                6, 7, 8, 16, 17,   // Kat 11-15 (3. Bölge: 5 farklı sera & doğa bulmacası)
+                9, 10, 11, 18, 19  // Kat 16-20 (4. Bölge: 5 farklı gözlemevi & yıldız bulmacası)
+        };
+        this.activePuzzleType = floorToUniquePuzzle[(floor - 1) % 20];
 
         // Her katta gizlenmiş 3 Altın Vida / Yıldız Tozu rastgele köşelere yerleştirilir
         for (int i = 0; i < 3; i++) {
@@ -317,11 +343,36 @@ public class PuzzleTowerGameView extends View {
             planetSlots[1] = 1;
             planetSlots[2] = 3;
             owlSpeechText = "🦉 Puhu: 3 gezegene dokunarak hepsini ortadaki Altın Tutulma Çizgisinde (⭐) hizala!";
-        } else {
+        } else if (activePuzzleType == 11) {
             shadowPieces[0] = 1;
             shadowPieces[1] = 2;
             shadowPieces[2] = 3;
             owlSpeechText = "🦉 Puhu: Gölge disklerine dokunarak döndür ve Sihirli Kule Anahtarının gölgesini tamamla!";
+        } else if (activePuzzleType == 12) {
+            clockHour = 5;
+            clockTargetHour = 9;
+            owlSpeechText = "🦉 Puhu: Guguklu Saatin ötmesi için akrebe dokunarak saati tam 09:00'a getir!";
+        } else if (activePuzzleType == 13) {
+            railTiles[0] = 1; railTiles[1] = 2; railTiles[2] = 1; railTiles[3] = 3;
+            owlSpeechText = "🦉 Puhu: Oyuncak Trenin geçebilmesi için 4 ray parçasına dokunarak düz (🛤️) hizala!";
+        } else if (activePuzzleType == 14) {
+            cakeBuiltLayers = 0;
+            owlSpeechText = "🦉 Puhu: Dev Pastayı önce Büyük Taban (1), sonra Orta Kat (2), en son Çilekli Zirve (3) sırasıyla diz!";
+        } else if (activePuzzleType == 15) {
+            ovenDials[0] = 0; ovenDials[1] = 1; ovenDials[2] = 0;
+            owlSpeechText = "🦉 Puhu: Şeker Fırınının 3 düğmesine dokunarak üçünü de 180° (🔥 Seviye 2) sıcaklığına getir!";
+        } else if (activePuzzleType == 16) {
+            butterflyMatches[0] = 1; butterflyMatches[1] = 2; butterflyMatches[2] = 1;
+            owlSpeechText = "🦉 Puhu: 3 Kelebeğe dokunarak her birini kendi rengindeki çiçeğin (🌸/🌻/🌺) üzerine kondur!";
+        } else if (activePuzzleType == 17) {
+            honeycombLit[0] = false; honeycombLit[1] = true; honeycombLit[2] = false; honeycombLit[3] = true; honeycombLit[4] = false;
+            owlSpeechText = "🦉 Puhu: Kraliçe Arının bal peteğindeki sönük altıgenlere dokunarak 5 peteğin hepsini altın balla doldur!";
+        } else if (activePuzzleType == 18) {
+            lensRings[0] = 2; lensRings[1] = 1; lensRings[2] = 3;
+            owlSpeechText = "🦉 Puhu: Dev Teleskobun 3 mercek halkasına dokunarak görüntüyü %100 Net (🔭) odakla!";
+        } else {
+            finalCrystalPieces = 0;
+            owlSpeechText = "🦉 Puhu: KULE ZİRVESİ! 4 Büyük Kristal Parçasına (💎) sırayla dokunarak Kulenin Kalbini birleştir!";
         }
 
         if (withCountdown) {
@@ -371,7 +422,15 @@ public class PuzzleTowerGameView extends View {
                 "🦉 İpucu: Sırasıyla Kedi Patisi (🐾), Geyik İzi (🦌), Ayı İzi (🐻) ve tekrar Kedi Patisi (🐾)!",
                 "🦉 İpucu: Şimdi " + (starConnectCount + 1) + " numaralı parlayan yıldıza dokun!",
                 "🦉 İpucu: Halka içindeki gezegenlere dokunarak üçünü de yeşil merkez çizgiye getir!",
-                "🦉 İpucu: Üç gölge çarkını da ⬆️ (Dik) konuma gelene kadar çevir!"
+                "🦉 İpucu: Üç gölge çarkını da ⬆️ (Dik) konuma gelene kadar çevir!",
+                "🦉 İpucu: Ortadaki büyük saate dokunarak saati 09:00 yap!",
+                "🦉 İpucu: Eğik duran tren raylarına dokunarak hepsini düz (═) ray yap!",
+                "🦉 İpucu: Önce 1. Büyük Taban, sonra 2. Orta Kat, en son 3. Çilekli Tepeye dokun!",
+                "🦉 İpucu: Üç fırın düğmesini de '🔥 180°' yazana kadar çevir!",
+                "🦉 İpucu: Kelebek kutularına dokunarak üçünü de '✅ Eşleşti' durumuna getir!",
+                "🦉 İpucu: Gri duran bal peteklerine dokunarak hepsini sarı bal (🍯) yap!",
+                "🦉 İpucu: Teleskop halkalarına dokunarak üçünü de '🔭 NET' konumuna getir!",
+                "🦉 İpucu: Parlayan 4 kristal parçasına sırayla dokunarak Büyük Kristali tamamla!"
         };
         owlSpeechText = hints[activePuzzleType % hints.length];
         if (listener != null) {
@@ -797,7 +856,7 @@ public class PuzzleTowerGameView extends View {
                 paint.setTextSize(12f * sp);
                 canvas.drawText(pIcons[i], px, py + 4f * dp, paint);
             }
-        } else {
+        } else if (activePuzzleType == 11) {
             // 12. Gölge Oyunlarıyla Kapı Açma
             paint.setColor(0xFF1E3A8A);
             paint.setTextSize(14f * sp);
@@ -812,6 +871,129 @@ public class PuzzleTowerGameView extends View {
                 paint.setColor(0xFFFFFFFF);
                 paint.setTextSize(16f * sp);
                 canvas.drawText(shDirs[shadowPieces[i] % 4], bx, by + 6f * dp, paint);
+            }
+        } else if (activePuzzleType == 12) {
+            // 13 (Kat 4): Guguklu Saat Akrep-Yelkovan Ayarı
+            paint.setColor(0xFF1E293B);
+            paint.setTextSize(14.5f * sp);
+            canvas.drawText("🕰️ Guguklu Saate Dokunarak Saati Tam " + clockTargetHour + ":00 Yap!", playAreaRect.centerX(), top + 0.26f * ph, paint);
+            float cx = playAreaRect.centerX();
+            float cy = top + 0.58f * ph;
+            paint.setColor(0xFFD97706);
+            canvas.drawCircle(cx, cy, 62f * dp, paint);
+            paint.setColor(0xFFFFFBEB);
+            canvas.drawCircle(cx, cy, 52f * dp, paint);
+            paint.setColor(0xFF0F172A);
+            paint.setTextSize(22f * sp);
+            canvas.drawText("🕒 " + clockHour + ":00", cx, cy + 8f * dp, paint);
+        } else if (activePuzzleType == 13) {
+            // 14 (Kat 5): Oyuncak Tren Rayı Döndürme
+            paint.setColor(0xFF1E293B);
+            paint.setTextSize(14f * sp);
+            canvas.drawText("🚂 Oyuncak Trenin Geçmesi İçin 4 Rayı da Yatay (═) Hizala!", playAreaRect.centerX(), top + 0.28f * ph, paint);
+            String[] rSyms = new String[]{"═", "║", "╔", "╝"};
+            for (int i = 0; i < 4; i++) {
+                float bx = left + (0.18f + i * 0.21f) * pw;
+                float by = top + 0.58f * ph;
+                boolean ok = (railTiles[i] % 4 == 0);
+                paint.setColor(ok ? 0xFF16A34A : 0xFF475569);
+                canvas.drawRoundRect(new RectF(bx - 32f * dp, by - 32f * dp, bx + 32f * dp, by + 32f * dp), 10f * dp, 10f * dp, paint);
+                paint.setColor(0xFFFFFFFF);
+                paint.setTextSize(24f * sp);
+                canvas.drawText(rSyms[railTiles[i] % 4], bx, by + 8f * dp, paint);
+            }
+        } else if (activePuzzleType == 14) {
+            // 15 (Kat 9): 3 Katlı Pasta Kulesi Dizme
+            paint.setColor(0xFF831843);
+            paint.setTextSize(14f * sp);
+            canvas.drawText("🎂 Pastayı Sırasıyla Diz: 1.Büyük Taban ➔ 2.Orta Kat ➔ 3.Çilekli Zirve (" + cakeBuiltLayers + "/3)", playAreaRect.centerX(), top + 0.28f * ph, paint);
+            String[] cLayers = new String[]{"1. Büyük Taban", "2. Kremalı Orta", "3. Çilekli Zirve"};
+            for (int i = 0; i < 3; i++) {
+                float bx = left + (0.22f + i * 0.28f) * pw;
+                float by = top + 0.62f * ph;
+                boolean done = (i < cakeBuiltLayers);
+                paint.setColor(done ? 0xFF16A34A : 0xFFEC4899);
+                canvas.drawRoundRect(new RectF(bx - 42f * dp, by - 34f * dp, bx + 42f * dp, by + 34f * dp), 12f * dp, 12f * dp, paint);
+                paint.setColor(0xFFFFFFFF);
+                paint.setTextSize(12.5f * sp);
+                canvas.drawText(cLayers[i], bx, by + 5f * dp, paint);
+            }
+        } else if (activePuzzleType == 15) {
+            // 16 (Kat 10): Şeker Fırını Derece Ayarı
+            paint.setColor(0xFF831843);
+            paint.setTextSize(14f * sp);
+            canvas.drawText("🔥 3 Fırın Düğmesine Dokunarak Hepsini 180° (Seviye 2) Yap!", playAreaRect.centerX(), top + 0.28f * ph, paint);
+            String[] temps = new String[]{"❄️ 0°", "🌡️ 100°", "🔥 180°", "🌋 250°"};
+            for (int i = 0; i < 3; i++) {
+                float bx = left + (0.22f + i * 0.28f) * pw;
+                float by = top + 0.58f * ph;
+                boolean ok = (ovenDials[i] == ovenTargets[i]);
+                paint.setColor(ok ? 0xFF16A34A : 0xFFEA580C);
+                canvas.drawCircle(bx, by, 38f * dp, paint);
+                paint.setColor(0xFFFFFFFF);
+                paint.setTextSize(14f * sp);
+                canvas.drawText(temps[ovenDials[i] % 4], bx, by + 6f * dp, paint);
+            }
+        } else if (activePuzzleType == 16) {
+            // 17 (Kat 14): Renkli Kelebekleri Çiçeklerine Eşleştirme
+            paint.setColor(0xFF065F46);
+            paint.setTextSize(14f * sp);
+            canvas.drawText("🦋 Kelebeklere Dokunarak Kendi Çiçekleriyle Eşleştir!", playAreaRect.centerX(), top + 0.28f * ph, paint);
+            String[] bfStates = new String[]{"🦋 ✅ Çiçekte", "🦋 ➔ Uçuyor", "🦋 ⬇ Arıyor"};
+            for (int i = 0; i < 3; i++) {
+                float bx = left + (0.22f + i * 0.28f) * pw;
+                float by = top + 0.58f * ph;
+                boolean ok = (butterflyMatches[i] % 3 == 0);
+                paint.setColor(ok ? 0xFF16A34A : 0xFF0D9488);
+                canvas.drawRoundRect(new RectF(bx - 40f * dp, by - 36f * dp, bx + 40f * dp, by + 36f * dp), 14f * dp, 14f * dp, paint);
+                paint.setColor(0xFFFFFFFF);
+                paint.setTextSize(13f * sp);
+                canvas.drawText(bfStates[butterflyMatches[i] % 3], bx, by + 6f * dp, paint);
+            }
+        } else if (activePuzzleType == 17) {
+            // 18 (Kat 15): Arı Peteği Altıgen Bal Yolu
+            paint.setColor(0xFF065F46);
+            paint.setTextSize(14f * sp);
+            canvas.drawText("🐝 Sönük Peteklere Dokunarak 5 Peteğin Hepsini Altın Balla (🍯) Doldur!", playAreaRect.centerX(), top + 0.28f * ph, paint);
+            for (int i = 0; i < 5; i++) {
+                float bx = left + (0.16f + i * 0.17f) * pw;
+                float by = top + (i % 2 == 0 ? 0.52f : 0.66f) * ph;
+                paint.setColor(honeycombLit[i] ? 0xFFF59E0B : 0xFF64748B);
+                canvas.drawCircle(bx, by, 28f * dp, paint);
+                paint.setColor(0xFFFFFFFF);
+                paint.setTextSize(16f * sp);
+                canvas.drawText(honeycombLit[i] ? "🍯" : "⬡", bx, by + 6f * dp, paint);
+            }
+        } else if (activePuzzleType == 18) {
+            // 19 (Kat 19): Teleskop Merceği Odaklama
+            paint.setColor(0xFF1E3A8A);
+            paint.setTextSize(14f * sp);
+            canvas.drawText("🔭 3 Mercek Halkasına Dokunarak Görüntüyü '🔭 NET' Konumuna Odakla!", playAreaRect.centerX(), top + 0.28f * ph, paint);
+            String[] focusLbl = new String[]{"🔭 NET", "🌫️ Bulanık", "🌀 Kayık", "🌑 Karanlık"};
+            for (int i = 0; i < 3; i++) {
+                float bx = left + (0.22f + i * 0.28f) * pw;
+                float by = top + 0.58f * ph;
+                boolean ok = (lensRings[i] % 4 == 0);
+                paint.setColor(ok ? 0xFF16A34A : 0xFF1D4ED8);
+                canvas.drawCircle(bx, by, 38f * dp, paint);
+                paint.setColor(0xFFFFFFFF);
+                paint.setTextSize(13f * sp);
+                canvas.drawText(focusLbl[lensRings[i] % 4], bx, by + 5f * dp, paint);
+            }
+        } else {
+            // 20 (Kat 20): Büyük Kule Kristali 4 Parça Final Birleştirme
+            paint.setColor(0xFF1E3A8A);
+            paint.setTextSize(14f * sp);
+            canvas.drawText("💎 KULE ZİRVESİ! 4 Kristal Parçasına Dokunarak Büyük Kristali Birleştir (" + finalCrystalPieces + "/4)", playAreaRect.centerX(), top + 0.26f * ph, paint);
+            for (int i = 0; i < 4; i++) {
+                float bx = left + (0.17f + i * 0.22f) * pw;
+                float by = top + 0.58f * ph;
+                boolean joined = (i < finalCrystalPieces);
+                paint.setColor(joined ? 0xFF00E676 : 0xFF7C3AED);
+                canvas.drawCircle(bx, by, 34f * dp, paint);
+                paint.setColor(0xFFFFFFFF);
+                paint.setTextSize(18f * sp);
+                canvas.drawText(joined ? "💎✨" : "💎 #" + (i + 1), bx, by + 6f * dp, paint);
             }
         }
 
@@ -1359,7 +1541,7 @@ public class PuzzleTowerGameView extends View {
                     return;
                 }
             }
-        } else {
+        } else if (activePuzzleType == 11) {
             // Gölge oyunu kapısı
             for (int i = 0; i < 3; i++) {
                 float bx = left + (0.22f + i * 0.28f) * pw;
@@ -1369,6 +1551,108 @@ public class PuzzleTowerGameView extends View {
                     if (listener != null) listener.onTowerActionSound(true);
                     if (shadowPieces[0] == 0 && shadowPieces[1] == 0 && shadowPieces[2] == 0) {
                         onPuzzleSolved();
+                    }
+                    invalidate();
+                    return;
+                }
+            }
+        } else if (activePuzzleType == 12) {
+            float cx = playAreaRect.centerX();
+            float cy = top + 0.58f * ph;
+            if (Math.hypot(tx - cx, ty - cy) < 68f * dp) {
+                clockHour = (clockHour % 12) + 1;
+                if (listener != null) listener.onTowerActionSound(true);
+                if (clockHour == clockTargetHour) onPuzzleSolved();
+                invalidate();
+            }
+        } else if (activePuzzleType == 13) {
+            for (int i = 0; i < 4; i++) {
+                float bx = left + (0.18f + i * 0.21f) * pw;
+                float by = top + 0.58f * ph;
+                if (Math.hypot(tx - bx, ty - by) < 38f * dp) {
+                    railTiles[i] = (railTiles[i] + 1) % 4;
+                    if (listener != null) listener.onTowerActionSound(true);
+                    if (railTiles[0] == 0 && railTiles[1] == 0 && railTiles[2] == 0 && railTiles[3] == 0) onPuzzleSolved();
+                    invalidate();
+                    return;
+                }
+            }
+        } else if (activePuzzleType == 14) {
+            for (int i = 0; i < 3; i++) {
+                float bx = left + (0.22f + i * 0.28f) * pw;
+                float by = top + 0.62f * ph;
+                if (Math.hypot(tx - bx, ty - by) < 44f * dp) {
+                    if (i == cakeBuiltLayers) {
+                        cakeBuiltLayers++;
+                        if (listener != null) listener.onTowerActionSound(true);
+                        if (cakeBuiltLayers >= 3) onPuzzleSolved();
+                    } else {
+                        cakeBuiltLayers = 0;
+                        triggerFunnyMistakeSmoke("Pasta Kreması Kaydı!");
+                    }
+                    invalidate();
+                    return;
+                }
+            }
+        } else if (activePuzzleType == 15) {
+            for (int i = 0; i < 3; i++) {
+                float bx = left + (0.22f + i * 0.28f) * pw;
+                float by = top + 0.58f * ph;
+                if (Math.hypot(tx - bx, ty - by) < 42f * dp) {
+                    ovenDials[i] = (ovenDials[i] + 1) % 4;
+                    if (listener != null) listener.onTowerActionSound(true);
+                    if (ovenDials[0] == ovenTargets[0] && ovenDials[1] == ovenTargets[1] && ovenDials[2] == ovenTargets[2]) onPuzzleSolved();
+                    invalidate();
+                    return;
+                }
+            }
+        } else if (activePuzzleType == 16) {
+            for (int i = 0; i < 3; i++) {
+                float bx = left + (0.22f + i * 0.28f) * pw;
+                float by = top + 0.58f * ph;
+                if (Math.hypot(tx - bx, ty - by) < 44f * dp) {
+                    butterflyMatches[i] = (butterflyMatches[i] + 1) % 3;
+                    if (listener != null) listener.onTowerActionSound(true);
+                    if (butterflyMatches[0] == 0 && butterflyMatches[1] == 0 && butterflyMatches[2] == 0) onPuzzleSolved();
+                    invalidate();
+                    return;
+                }
+            }
+        } else if (activePuzzleType == 17) {
+            for (int i = 0; i < 5; i++) {
+                float bx = left + (0.16f + i * 0.17f) * pw;
+                float by = top + (i % 2 == 0 ? 0.52f : 0.66f) * ph;
+                if (Math.hypot(tx - bx, ty - by) < 34f * dp) {
+                    honeycombLit[i] = true;
+                    if (listener != null) listener.onTowerActionSound(true);
+                    boolean all = true;
+                    for (int k = 0; k < 5; k++) if (!honeycombLit[k]) all = false;
+                    if (all) onPuzzleSolved();
+                    invalidate();
+                    return;
+                }
+            }
+        } else if (activePuzzleType == 18) {
+            for (int i = 0; i < 3; i++) {
+                float bx = left + (0.22f + i * 0.28f) * pw;
+                float by = top + 0.58f * ph;
+                if (Math.hypot(tx - bx, ty - by) < 42f * dp) {
+                    lensRings[i] = (lensRings[i] + 1) % 4;
+                    if (listener != null) listener.onTowerActionSound(true);
+                    if (lensRings[0] == 0 && lensRings[1] == 0 && lensRings[2] == 0) onPuzzleSolved();
+                    invalidate();
+                    return;
+                }
+            }
+        } else {
+            for (int i = 0; i < 4; i++) {
+                float bx = left + (0.17f + i * 0.22f) * pw;
+                float by = top + 0.58f * ph;
+                if (Math.hypot(tx - bx, ty - by) < 38f * dp) {
+                    if (i == finalCrystalPieces) {
+                        finalCrystalPieces++;
+                        if (listener != null) listener.onTowerActionSound(true);
+                        if (finalCrystalPieces >= 4) onPuzzleSolved();
                     }
                     invalidate();
                     return;

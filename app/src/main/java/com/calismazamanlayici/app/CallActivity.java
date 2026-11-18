@@ -58,6 +58,18 @@ public class CallActivity extends Activity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        TimerForegroundService.setStudentActivityInForeground(true);
+    }
+
+    @Override
+    protected void onPause() {
+        TimerForegroundService.setStudentActivityInForeground(false);
+        super.onPause();
+    }
+
+    @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON

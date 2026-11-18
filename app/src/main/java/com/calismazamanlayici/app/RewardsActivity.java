@@ -16,6 +16,18 @@ public class RewardsActivity extends Activity {
     private boolean togglePraise = false;
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        TimerForegroundService.setStudentActivityInForeground(true);
+    }
+
+    @Override
+    protected void onPause() {
+        TimerForegroundService.setStudentActivityInForeground(false);
+        super.onPause();
+    }
+
+    @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_rewards);

@@ -668,6 +668,7 @@ public class StudyDatabaseHelper extends SQLiteOpenHelper {
         root.put("babaIp", getPairedParentIp(context, "BABA"));
         root.put("carriedCycleSeconds", getCarriedCycleSeconds(context));
         root.put("githubRepo", getGitHubRepo(context));
+        root.put("allowOtherPhoneFeatures", isParentAlwaysAllowOtherFeatures(context));
 
         JSONObject gradesObj = new JSONObject();
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
@@ -692,6 +693,7 @@ public class StudyDatabaseHelper extends SQLiteOpenHelper {
             sessArr.put(item);
         }
         root.put("sessions", sessArr);
+        root.put("gameProgress", exportGameProgressJson(context));
         return root;
     }
 
@@ -715,6 +717,7 @@ public class StudyDatabaseHelper extends SQLiteOpenHelper {
         ed.putString(KEY_THEME_COLOR, themeKey);
         if (!anneIp.isEmpty()) ed.putString(KEY_PARENT_IP_PREFIX + "ANNE", anneIp);
         if (!babaIp.isEmpty()) ed.putString(KEY_PARENT_IP_PREFIX + "BABA", babaIp);
+        ed.putBoolean(KEY_PARENT_ALWAYS_ALLOW_PHONE, root.optBoolean("allowOtherPhoneFeatures", false));
         String backedRepo = root.optString("githubRepo", "");
         if (!backedRepo.isEmpty() && !backedRepo.equals("kullanici/calisma-zamanlayici")) {
             ed.putString(KEY_GITHUB_REPO, backedRepo);
@@ -736,6 +739,7 @@ public class StudyDatabaseHelper extends SQLiteOpenHelper {
         }
         ed.apply();
 
+        restoreGameProgressJson(context, root.optJSONObject("gameProgress"));
         JSONArray sessArr = root.optJSONArray("sessions");
         if (sessArr != null) {
             SQLiteDatabase db = getWritableDatabase();
@@ -752,4 +756,149 @@ public class StudyDatabaseHelper extends SQLiteOpenHelper {
             }
         }
     }
+
+    // =========================================================================
+    // KALICI OYUN SEVİYESİ HAFIZASI VE YEDEKTEN GERİ YÜKLEME SİSTEMİ
+    // =========================================================================
+    private static final String KEY_GAME_LEVEL_PREFIX = "saved_game_level_";
+    private static final String PREFS_TOWER = "BulmacaKulesiSavePrefs";
+
+    public static int getSavedGameLevel(Context context, String gameKey, int defaultLevel) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        int lvl = prefs.getInt(KEY_GAME_LEVEL_PREFIX + gameKey, defaultLevel);
+        return Math.max(1, lvl);
+    }
+
+    public static void saveGameLevel(Context context, String gameKey, int level) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        prefs.edit().putInt(KEY_GAME_LEVEL_PREFIX + gameKey, Math.max(1, level)).apply();
+        BackupManager.saveStudentBackupAsync(context);
+    }
+
+    public static JSONObject exportGameProgressJson(Context context) {
+        JSONObject gp = new JSONObject();
+        try {
+            SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            String[] keys = new String[]{
+                    "jump_current_stage", "jump_max_stage", "jump_high_score",
+                    "car_race_level", "car_race_high_score",
+                    "xox_level", "xox_wins",
+                    "checkers_level", "checkers_wins",
+                    "quiz_level_0", "quiz_level_1", "quiz_level_2", "quiz_level_3",
+                    "quiz_level_4", "quiz_level_5", "quiz_level_6", "quiz_level_7"
+            };
+            for (String k : keys) {
+                gp.put(k, prefs.getInt(KEY_GAME_LEVEL_PREFIX + k, 1));
+            }
+            SharedPreferences towerPrefs = context.getSharedPreferences(PREFS_TOWER, Context.MODE_PRIVATE);
+            gp.put("tower_unlockedMaxFloor", towerPrefs.getInt("unlockedMaxFloor", 1));
+            gp.put("tower_currentFloor", towerPrefs.getInt("currentFloor", 1));
+            gp.put("tower_totalGoldenScrews", towerPrefs.getInt("totalGoldenScrews", 6));
+            gp.put("tower_totalCrystalsCollected", towerPrefs.getInt("totalCrystalsCollected", 0));
+            gp.put("tower_equippedHat", towerPrefs.getInt("equippedHat", 0));
+            gp.put("tower_equippedCape", towerPrefs.getInt("equippedCape", 0));
+            gp.put("tower_equippedBag", towerPrefs.getInt("equippedBag", 0));
+            gp.put("tower_ownedMask", towerPrefs.getInt("ownedMask", 1));
+        } catch (Exception ignored) {
+        }
+        return gp;
+    }
+
+    public static void restoreGameProgressJson(Context context, JSONObject gp) {
+        if (gp == null) return;
+        try {
+            SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            SharedPreferences.Editor ed = prefs.edit();
+            String[] keys = new String[]{
+                    "jump_current_stage", "jump_max_stage", "jump_high_score",
+                    "car_race_level", "car_race_high_score",
+                    "xox_level", "xox_wins",
+                    "checkers_level", "checkers_wins",
+                    "quiz_level_0", "quiz_level_1", "quiz_level_2", "quiz_level_3",
+                    "quiz_level_4", "quiz_level_5", "quiz_level_6", "quiz_level_7"
+            };
+            for (String k : keys) {
+                if (gp.has(k)) {
+                    ed.putInt(KEY_GAME_LEVEL_PREFIX + k, gp.optInt(k, 1));
+                }
+            }
+            ed.apply();
+
+            SharedPreferences towerPrefs = context.getSharedPreferences(PREFS_TOWER, Context.MODE_PRIVATE);
+            towerPrefs.edit()
+                    .putInt("unlockedMaxFloor", gp.optInt("tower_unlockedMaxFloor", 1))
+                    .putInt("currentFloor", gp.optInt("tower_currentFloor", 1))
+                    .putInt("totalGoldenScrews", gp.optInt("tower_totalGoldenScrews", 6))
+                    .putInt("totalCrystalsCollected", gp.optInt("tower_totalCrystalsCollected", 0))
+                    .putInt("equippedHat", gp.optInt("tower_equippedHat", 0))
+                    .putInt("equippedCape", gp.optInt("tower_equippedCape", 0))
+                    .putInt("equippedBag", gp.optInt("tower_equippedBag", 0))
+                    .putInt("ownedMask", gp.optInt("tower_ownedMask", 1))
+                    .apply();
+        } catch (Exception ignored) {
+        }
+    }
+
+
+    // =========================================================================
+    // LAUNCHER KİLİDİ VE MOLADA TELEFONUN DİĞER ÖZELLİKLERİNİ KULLANMA İZİNLERİ
+    // =========================================================================
+    private static final String KEY_PARENT_ALWAYS_ALLOW_PHONE = "parent_always_allow_other_features";
+    private static final String KEY_ONE_TIME_BREAK_PHONE_GRANTED = "one_time_break_phone_granted";
+    private static final String KEY_BREAK_PERMISSION_BUTTON_UNLOCKED = "break_permission_btn_unlocked";
+    private static final String KEY_BREAK_PERMISSION_PENDING = "break_permission_request_pending";
+
+    public static boolean isParentAlwaysAllowOtherFeatures(Context context) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        return prefs.getBoolean(KEY_PARENT_ALWAYS_ALLOW_PHONE, false);
+    }
+
+    public static void setParentAlwaysAllowOtherFeatures(Context context, boolean allow) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        prefs.edit().putBoolean(KEY_PARENT_ALWAYS_ALLOW_PHONE, allow).apply();
+        BackupManager.saveStudentBackupAsync(context);
+    }
+
+    public static boolean isOneTimeBreakPhoneGranted(Context context) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        return prefs.getBoolean(KEY_ONE_TIME_BREAK_PHONE_GRANTED, false);
+    }
+
+    public static void setOneTimeBreakPhoneGranted(Context context, boolean granted) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        prefs.edit()
+                .putBoolean(KEY_ONE_TIME_BREAK_PHONE_GRANTED, granted)
+                .putBoolean(KEY_BREAK_PERMISSION_PENDING, false)
+                .apply();
+    }
+
+    public static boolean isBreakPermissionButtonUnlocked(Context context) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        return prefs.getBoolean(KEY_BREAK_PERMISSION_BUTTON_UNLOCKED, false);
+    }
+
+    public static void setBreakPermissionButtonUnlocked(Context context, boolean unlocked) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        prefs.edit().putBoolean(KEY_BREAK_PERMISSION_BUTTON_UNLOCKED, unlocked).apply();
+    }
+
+    public static boolean isBreakPermissionPending(Context context) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        return prefs.getBoolean(KEY_BREAK_PERMISSION_PENDING, false);
+    }
+
+    public static void setBreakPermissionPending(Context context, boolean pending) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        prefs.edit().putBoolean(KEY_BREAK_PERMISSION_PENDING, pending).apply();
+    }
+
+    public static void clearOneTimeBreakPermissions(Context context) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        prefs.edit()
+                .putBoolean(KEY_ONE_TIME_BREAK_PHONE_GRANTED, false)
+                .putBoolean(KEY_BREAK_PERMISSION_BUTTON_UNLOCKED, false)
+                .putBoolean(KEY_BREAK_PERMISSION_PENDING, false)
+                .apply();
+    }
+
 }

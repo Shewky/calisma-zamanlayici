@@ -54,6 +54,9 @@ public class MainActivity extends Activity {
 
     private Button btnOpenSettings;
     private Button btnResumeActiveTimer;
+    private Button btnMainBreakPhonePermission;
+    private int consecutiveBackPresses = 0;
+    private long lastBackPressTimeMs = 0L;
     private Button btnStartHomework;
     private Button btnStartTest;
     private Button btnStartBookRead;
@@ -132,6 +135,10 @@ public class MainActivity extends Activity {
 
         btnOpenSettings = findViewById(R.id.btnOpenSettings);
         btnResumeActiveTimer = findViewById(R.id.btnResumeActiveTimer);
+        btnMainBreakPhonePermission = findViewById(R.id.btnMainBreakPhonePermission);
+        if (btnMainBreakPhonePermission != null) {
+            btnMainBreakPhonePermission.setOnClickListener(v -> handleBreakPermissionButtonClick());
+        }
         btnStartHomework = findViewById(R.id.btnStartHomework);
         btnStartTest = findViewById(R.id.btnStartTest);
         btnStartBookRead = findViewById(R.id.btnStartBookRead);
@@ -311,6 +318,7 @@ public class MainActivity extends Activity {
                 toggled = wm.setWifiEnabled(true);
             }
             if (!toggled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                TimerForegroundService.setSystemExemptLaunch(true);
                 Intent panelIntent = new Intent(Settings.Panel.ACTION_WIFI);
                 startActivity(panelIntent);
             }
@@ -467,6 +475,7 @@ public class MainActivity extends Activity {
             PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
             if (pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName())) {
                 try {
+                    TimerForegroundService.setSystemExemptLaunch(true);
                     Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
                     intent.setData(Uri.parse("package:" + getPackageName()));
                     startActivity(intent);
@@ -488,8 +497,87 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        TimerForegroundService.setStudentActivityInForeground(true);
         applyCurrentTheme();
         refreshDashboardUi();
+    }
+
+    @Override
+    protected void onPause() {
+        TimerForegroundService.setStudentActivityInForeground(false);
+        super.onPause();
+    }
+
+    @Override
+    protected void onUserLeaveHint() {
+        super.onUserLeaveHint();
+        boolean canLeave = StudyDatabaseHelper.isParentAlwaysAllowOtherFeatures(this)
+                || (serviceBound && timerService != null
+                && timerService.getCurrentPhase() == TimerForegroundService.PHASE_BREAK
+                && StudyDatabaseHelper.isOneTimeBreakPhoneGranted(this));
+        if (!canLeave && serviceBound && timerService != null) {
+            timerService.forceBringStudentAppToFront();
+        }
+    }
+
+    @Override
+    public void onBackPressed() {
+        boolean alwaysAllowed = StudyDatabaseHelper.isParentAlwaysAllowOtherFeatures(this);
+        boolean inBreak = serviceBound && timerService != null
+                && timerService.getCurrentPhase() == TimerForegroundService.PHASE_BREAK;
+        boolean oneTimeGranted = inBreak && StudyDatabaseHelper.isOneTimeBreakPhoneGranted(this);
+
+        if (alwaysAllowed || oneTimeGranted) {
+            openOtherPhoneFeaturesChooser();
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        if (now - lastBackPressTimeMs > 4000L) {
+            consecutiveBackPresses = 1;
+        } else {
+            consecutiveBackPresses++;
+        }
+        lastBackPressTimeMs = now;
+
+        if (consecutiveBackPresses >= 3) {
+            consecutiveBackPresses = 0;
+            String speech = "Annenden ya da babandan izin alarak, telefonunun diğer özelliklerini bir seferlik mola süresince kullanabilirsin";
+            speakTextViaService(speech);
+            StudyDatabaseHelper.setBreakPermissionButtonUnlocked(this, true);
+            refreshDashboardUi();
+            if (inBreak) {
+                Toast.makeText(this, "📱 " + speech + ". Ekrandaki 'İzin İste' butonuna basabilirsin.", Toast.LENGTH_LONG).show();
+            } else {
+                Toast.makeText(this, "🔒 " + speech + " (Şu anda çalışma saatindesin, molaya geçtiğinde izin isteyebilirsin).", Toast.LENGTH_LONG).show();
+            }
+        } else {
+            Toast.makeText(this, "🔒 Öğrenci uygulaması ana ekran modundadır, kapatılamaz.", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void handleBreakPermissionButtonClick() {
+        boolean alwaysAllowed = StudyDatabaseHelper.isParentAlwaysAllowOtherFeatures(this);
+        boolean inBreak = serviceBound && timerService != null
+                && timerService.getCurrentPhase() == TimerForegroundService.PHASE_BREAK;
+        boolean oneTimeGranted = inBreak && StudyDatabaseHelper.isOneTimeBreakPhoneGranted(this);
+
+        if (alwaysAllowed || oneTimeGranted) {
+            openOtherPhoneFeaturesChooser();
+        } else if (inBreak) {
+            LanSyncServer.sendBreakPhonePermissionRequestToParents(this);
+            refreshDashboardUi();
+        } else {
+            Toast.makeText(this, "⏳ Telefonun diğer özelliklerini kullanma izni yalnızca mola süresindeyken istenebilir.", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void openOtherPhoneFeaturesChooser() {
+        try {
+            TimerForegroundService.setSystemExemptLaunch(true);
+            moveTaskToBack(true);
+        } catch (Exception ignored) {
+        }
     }
 
     @Override
@@ -575,6 +663,30 @@ public class MainActivity extends Activity {
                     + " (" + StudyDatabaseHelper.formatClock(timerService.getRemainingSeconds()) + ")");
         } else {
             btnResumeActiveTimer.setVisibility(View.GONE);
+        }
+
+        if (btnMainBreakPhonePermission != null) {
+            boolean alwaysAllowed = StudyDatabaseHelper.isParentAlwaysAllowOtherFeatures(this);
+            boolean inBreak = serviceBound && timerService != null
+                    && timerService.getCurrentPhase() == TimerForegroundService.PHASE_BREAK;
+            boolean oneTimeGranted = inBreak && StudyDatabaseHelper.isOneTimeBreakPhoneGranted(this);
+            boolean btnUnlocked = inBreak && StudyDatabaseHelper.isBreakPermissionButtonUnlocked(this);
+
+            if (alwaysAllowed || oneTimeGranted) {
+                btnMainBreakPhonePermission.setVisibility(View.VISIBLE);
+                btnMainBreakPhonePermission.setBackground(ThemeHelper.createButtonDrawable(this, 0xFF16A34A));
+                btnMainBreakPhonePermission.setText("📱 Telefonun Diğer Özelliklerini Kullan (İzin Verildi)");
+            } else if (btnUnlocked) {
+                btnMainBreakPhonePermission.setVisibility(View.VISIBLE);
+                btnMainBreakPhonePermission.setBackground(ThemeHelper.createButtonDrawable(this, 0xFFD97706));
+                if (StudyDatabaseHelper.isBreakPermissionPending(this)) {
+                    btnMainBreakPhonePermission.setText("⏳ Veli Onayı Bekleniyor... (Tekrar İstek Gönder)");
+                } else {
+                    btnMainBreakPhonePermission.setText("📱 Veli'den Bir Seferlik Telefon İzni İste");
+                }
+            } else {
+                btnMainBreakPhonePermission.setVisibility(View.GONE);
+            }
         }
     }
 }

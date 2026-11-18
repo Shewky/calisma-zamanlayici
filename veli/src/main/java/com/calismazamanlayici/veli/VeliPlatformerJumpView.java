@@ -31,6 +31,7 @@ public class VeliPlatformerJumpView extends View {
     public interface JumpGameListener {
         void onStatsUpdated(int score, int stage, String stageName, int lives);
         void onJumpTriggered();
+        void onLaserFired();
         void onStarCollected();
         void onObstacleHit();
         void onCountdownTick(boolean isGo);
@@ -123,7 +124,8 @@ public class VeliPlatformerJumpView extends View {
         float baseY;
         float vx;
         float radius;
-        int enemyType; // 0: Hücum Eden Canavar, 1: Dalgalı Uçan Yarasa/Dron, 2: Zıplayan Ateş/Buz Golemi
+        int enemyType; // 0..5: 6 Farklı Düşman Türü
+        int hp = 1;
         float phase;
     }
 
@@ -167,7 +169,8 @@ public class VeliPlatformerJumpView extends View {
     private final RectF btnMuteRect = new RectF();
     private final RectF btnLeftLaserRect = new RectF();
     private final RectF btnRightJumpRect = new RectF();
-    private final RectF[] parkourTabRects = new RectF[6];
+    private int maxUnlockedStage = 1;
+    private final RectF[] parkourTabRects = new RectF[10];
     private final RectF btnRetryRect = new RectF();
     private final RectF btnNextParkourRect = new RectF();
     private final RectF btnLobbyOnGameOverRect = new RectF();
@@ -191,11 +194,15 @@ public class VeliPlatformerJumpView extends View {
             "Lav Mağarası & Trambolin",
             "Kristal Buzul Tepeleri",
             "Uzay İstasyonu Lazerleri",
-            "Altın Tapınak Piramidi"
+            "Altın Tapınak Piramidi",
+            "Sualtı Mercan Krallığı",
+            "Siber Neon Şehri",
+            "Şekerleme & Çikolata Diyarı",
+            "Ejderha Kalesi Zirvesi"
     };
 
     private static final String[] SHORT_TAB_NAMES = new String[]{
-            "1.Orman", "2.Bulut", "3.Lav", "4.Buzul", "5.Uzay", "6.Tapınak"
+            "P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8", "P9", "P10"
     };
 
     private static final int[] SKY_COLORS = new int[]{
@@ -204,7 +211,11 @@ public class VeliPlatformerJumpView extends View {
             0xFF2D1612, // 3: Lav Mağarası
             0xFFB3E5FC, // 4: Kristal Buzul
             0xFF0B132B, // 5: Uzay İstasyonu
-            0xFFFFE082  // 6: Altın Tapınak
+            0xFFFFE082, // 6: Altın Tapınak
+            0xFF006064, // 7: Sualtı Mercan Krallığı
+            0xFF1A0033, // 8: Siber Neon Şehri
+            0xFFF8BBD0, // 9: Şekerleme & Çikolata Diyarı
+            0xFF311B92  // 10: Ejderha Kalesi Zirvesi
     };
 
     private static final int[] GROUND_COLORS = new int[]{
@@ -213,7 +224,11 @@ public class VeliPlatformerJumpView extends View {
             0xFF4E342E, // 3: Volkanik Kaya
             0xFF039BE5, // 4: Buzul Zemini
             0xFF263238, // 5: Metalik Uzay Güvertesi
-            0xFFD4AF37  // 6: Altın Tapınak Taşı
+            0xFFD4AF37, // 6: Altın Tapınak Taşı
+            0xFF00838F, // 7: Mercan Kum Zemini
+            0xFF111827, // 8: Siber Asfalt
+            0xFF6D4C41, // 9: Çikolata Zemini
+            0xFF4527A0  // 10: Ejderha Kalesi Suru
     };
 
     private static final int[] PLATFORM_COLORS = new int[]{
@@ -222,7 +237,11 @@ public class VeliPlatformerJumpView extends View {
             0xFF8D6E63, // 3: Bazalt Taş Köprü
             0xFFE1F5FE, // 4: Parlak Buz Kütleleri
             0xFF00E5FF, // 5: Neon Siber Platform
-            0xFFFFB300  // 6: Altın Basamaklar
+            0xFFFFB300, // 6: Altın Basamaklar
+            0xFFFF80AB, // 7: Pembe Mercan Terası
+            0xFFE040FB, // 8: Mor Lazer Köprüsü
+            0xFFFF4081, // 9: Çilekli Gofret Platformu
+            0xFFFF6D00  // 10: Ateş Taşı Köprüsü
     };
 
     public VeliPlatformerJumpView(Context context, JumpGameListener listener) {
@@ -237,9 +256,12 @@ public class VeliPlatformerJumpView extends View {
         this.playerY = this.groundY - this.playerRadius;
         this.scrollSpeed = 2.6f * dp;
 
-        for (int i = 0; i < 6; i++) {
+        for (int i = 0; i < 10; i++) {
             parkourTabRects[i] = new RectF();
         }
+        this.stage = Math.min(10, Math.max(1, VeliStorage.getSavedGameLevel(context, "jump_current_stage", 1)));
+        this.maxUnlockedStage = Math.min(10, Math.max(this.stage, VeliStorage.getSavedGameLevel(context, "jump_max_stage", 1)));
+        this.highScore = Math.max(0, VeliStorage.getSavedGameLevel(context, "jump_high_score", 1) - 1);
         resetGame();
     }
 
@@ -263,7 +285,7 @@ public class VeliPlatformerJumpView extends View {
     }
 
     public void selectParkour(int newStage) {
-        if (newStage < 1 || newStage > 6) newStage = 1;
+        if (newStage < 1 || newStage > 10) newStage = 1;
         this.stage = newStage;
         paused = false;
         if (gameOver) {
@@ -289,7 +311,9 @@ public class VeliPlatformerJumpView extends View {
     }
 
     private void loadParkourStage(int targetStage) {
-        this.stage = ((targetStage - 1) % 6) + 1;
+        this.stage = ((targetStage - 1) % 10) + 1;
+        if (this.stage > this.maxUnlockedStage) { this.maxUnlockedStage = this.stage; VeliStorage.saveGameLevel(getContext(), "jump_max_stage", this.maxUnlockedStage); }
+        VeliStorage.saveGameLevel(getContext(), "jump_current_stage", this.stage);
         this.parkourDistanceDp = 0f;
         this.finishGateSpawned = false;
         this.finishGateX = -500f * dp;
@@ -376,7 +400,7 @@ public class VeliPlatformerJumpView extends View {
         laserBeams.add(beam);
         spawnSparkles(beam.x, beam.y, 0xFF00E5FF, 8);
         if (listener != null) {
-            listener.onJumpTriggered();
+            listener.onLaserFired();
         }
         invalidate();
     }
@@ -457,7 +481,7 @@ public class VeliPlatformerJumpView extends View {
                 return true;
             }
 
-            for (int i = 0; i < 6; i++) {
+            for (int i = 0; i < 10; i++) {
                 if (parkourTabRects[i].contains(tx, ty)) {
                     selectParkour(i + 1);
                     return true;
@@ -466,7 +490,7 @@ public class VeliPlatformerJumpView extends View {
 
             if (gameOver) {
                 if (btnNextParkourRect.contains(tx, ty)) {
-                    selectParkour((stage % 6) + 1);
+                    selectParkour((stage % 10) + 1);
                     return true;
                 }
                 if (btnLobbyOnGameOverRect.contains(tx, ty)) {
@@ -513,6 +537,7 @@ public class VeliPlatformerJumpView extends View {
     private void notifyStats() {
         if (score > highScore) {
             highScore = score;
+            VeliStorage.saveGameLevel(getContext(), "jump_high_score", highScore + 1);
         }
         if (listener != null) {
             String stName = STAGE_NAMES[(stage - 1) % STAGE_NAMES.length];
@@ -754,7 +779,7 @@ public class VeliPlatformerJumpView extends View {
 
             spawnReachableStarArc(deck1.x + 18f * dp, deck1.baseY - 32f * dp, 2, 36f * dp, 5);
             spawnReachableStarArc(deck2.x + 18f * dp, deck2.baseY - 32f * dp, 3, 34f * dp, 4);
-        } else {
+        } else if (stage == 6) {
             // Parkur 6: Altın Tapınak Piramidi
             for (int step = 0; step < 3; step++) {
                 Platform stair = new Platform();
@@ -770,30 +795,142 @@ public class VeliPlatformerJumpView extends View {
                 platforms.add(stair);
                 spawnReachableStarArc(stair.x + 15f * dp, stair.baseY - 30f * dp, 2, 32f * dp, (step == 2) ? 1 : 5);
             }
+        } else if (stage == 7) {
+            // Parkur 7: Sualtı Mercan Krallığı (Yüzen Mercan Adaları + Su Girdapları + Köpekbalığı/Ahtapot)
+            GroundPit whirlpool = new GroundPit();
+            whirlpool.x = startX + 30f * dp;
+            whirlpool.width = 115f * dp;
+            whirlpool.pitType = 0;
+            pits.add(whirlpool);
+
+            Platform coral1 = new Platform();
+            coral1.x = startX + 12f * dp;
+            coral1.baseY = gY - 82f * dp;
+            coral1.y = coral1.baseY;
+            coral1.width = 120f * dp;
+            coral1.height = 20f * dp;
+            coral1.movingVertically = true;
+            coral1.movePhase = random.nextFloat() * 6.28f;
+            platforms.add(coral1);
+
+            Platform coral2 = new Platform();
+            coral2.x = startX + 150f * dp;
+            coral2.baseY = gY - 150f * dp;
+            coral2.y = coral2.baseY;
+            coral2.width = 120f * dp;
+            coral2.height = 20f * dp;
+            coral2.hasTrampoline = true;
+            coral2.trampolineOffsetX = 35f * dp;
+            platforms.add(coral2);
+
+            spawnReachableStarArc(coral1.x + 16f * dp, coral1.baseY - 32f * dp, 3, 34f * dp, 5);
+            spawnReachableStarArc(coral2.x + 16f * dp, coral2.baseY - 32f * dp, 3, 34f * dp, 1);
+        } else if (stage == 8) {
+            // Parkur 8: Siber Neon Şehri (Hızlı Kayar Hologram Köprüler + Lazer Dron Filosu)
+            Platform neon1 = new Platform();
+            neon1.x = startX + 10f * dp;
+            neon1.baseY = gY - 85f * dp;
+            neon1.y = neon1.baseY;
+            neon1.width = 125f * dp;
+            neon1.height = 16f * dp;
+            neon1.movingHorizontally = true;
+            neon1.movePhase = random.nextFloat() * 6.28f;
+            platforms.add(neon1);
+
+            Platform neon2 = new Platform();
+            neon2.x = startX + 155f * dp;
+            neon2.baseY = gY - 165f * dp;
+            neon2.y = neon2.baseY;
+            neon2.width = 130f * dp;
+            neon2.height = 16f * dp;
+            neon2.movingVertically = true;
+            neon2.movePhase = random.nextFloat() * 6.28f;
+            platforms.add(neon2);
+
+            spawnReachableStarArc(neon1.x + 16f * dp, neon1.baseY - 32f * dp, 3, 34f * dp, 5);
+            spawnReachableStarArc(neon2.x + 18f * dp, neon2.baseY - 32f * dp, 3, 34f * dp, 4);
+        } else if (stage == 9) {
+            // Parkur 9: Şekerleme & Çikolata Diyarı (ZıplatanJöle Trambolinler + Gofret Köprüler)
+            for (int k = 0; k < 2; k++) {
+                Platform wafer = new Platform();
+                wafer.x = startX + k * 140f * dp;
+                wafer.baseY = gY - (75f + k * 75f) * dp;
+                wafer.y = wafer.baseY;
+                wafer.width = 120f * dp;
+                wafer.height = 20f * dp;
+                wafer.hasTrampoline = (k == 0);
+                wafer.trampolineOffsetX = 35f * dp;
+                platforms.add(wafer);
+                spawnReachableStarArc(wafer.x + 18f * dp, wafer.baseY - 32f * dp, 3, 34f * dp, 5);
+            }
+        } else {
+            // Parkur 10: Ejderha Kalesi Zirvesi (Lav Hendekleri + Kale Burçları + Zırhlı Ejderha Muhafızları)
+            GroundPit moat = new GroundPit();
+            moat.x = startX + 35f * dp;
+            moat.width = 125f * dp;
+            moat.pitType = 1;
+            pits.add(moat);
+
+            Platform tower1 = new Platform();
+            tower1.x = startX;
+            tower1.baseY = gY - 72f * dp;
+            tower1.y = tower1.baseY;
+            tower1.width = 100f * dp;
+            tower1.height = 20f * dp;
+            tower1.hasTrampoline = true;
+            tower1.trampolineOffsetX = 24f * dp;
+            platforms.add(tower1);
+
+            Platform tower2 = new Platform();
+            tower2.x = startX + 125f * dp;
+            tower2.baseY = gY - 170f * dp;
+            tower2.y = tower2.baseY;
+            tower2.width = 140f * dp;
+            tower2.height = 20f * dp;
+            platforms.add(tower2);
+
+            spawnReachableStarArc(tower2.x + 20f * dp, tower2.baseY - 32f * dp, 3, 36f * dp, 2);
         }
 
-        // Karşıdan Saldıran Düşman Üretimi (İlerledikçe olasılığı ve hızı artar!)
-        int enemyChance = 55 + (int) (progressRatio * 35f);
-        if (random.nextInt(100) < enemyChance) {
+        // Lazerin Bolca Kullanılabilmesi İçin 6 Farklı Düşman Türü ve Çoklu Düşman Dalgaları!
+        int enemyCountToSpawn = (random.nextInt(100) < (45 + (int) (progressRatio * 40f))) ? 2 : 1;
+        for (int eIdx = 0; eIdx < enemyCountToSpawn; eIdx++) {
             AttackingEnemy en = new AttackingEnemy();
-            en.x = startX + 210f * dp;
-            en.radius = 20f * dp;
-            en.enemyType = random.nextInt(3);
+            en.x = startX + (175f + eIdx * 105f) * dp;
+            en.enemyType = random.nextInt(6);
+            en.radius = (en.enemyType == 3) ? (24f * dp) : (20f * dp);
+            en.hp = (en.enemyType == 3) ? 2 : 1; // 3 = Zırhlı Mech (2 Lazer Vuruşuyla Patlar!)
+
             if (en.enemyType == 0) {
-                // Zeminde karşıdan hızla saldıran düşman
+                // 0: Hücum Eden Kara Canavarı
                 en.baseY = gY - en.radius;
                 en.y = en.baseY;
                 en.vx = (1.2f + progressRatio * 1.1f) * dp;
             } else if (en.enemyType == 1) {
-                // Orta yükseklikte dalgalanarak saldıran uçan yarasa / uzay dronu
+                // 1: Dalgalı Uçan Yarasa / Uzay Dronu
                 en.baseY = gY - 95f * dp;
                 en.y = en.baseY;
                 en.vx = (1.4f + progressRatio * 1.2f) * dp;
-            } else {
-                // Zıplayarak yaklaşan düşman
+            } else if (en.enemyType == 2) {
+                // 2: Zıplayan Ateş/Buz Golemi
                 en.baseY = gY - en.radius;
                 en.y = en.baseY;
                 en.vx = (1.1f + progressRatio * 1.0f) * dp;
+            } else if (en.enemyType == 3) {
+                // 3: Zırhlı 2-Canlı Dev Robot
+                en.baseY = gY - en.radius;
+                en.y = en.baseY;
+                en.vx = (0.9f + progressRatio * 0.8f) * dp;
+            } else if (en.enemyType == 4) {
+                // 4: Yüksekten Dalış Yapan Fırtına Kartalı
+                en.baseY = gY - 140f * dp;
+                en.y = en.baseY;
+                en.vx = (1.6f + progressRatio * 1.2f) * dp;
+            } else {
+                // 5: Hızlı Siber Örümcek
+                en.baseY = gY - 55f * dp;
+                en.y = en.baseY;
+                en.vx = (1.5f + progressRatio * 1.1f) * dp;
             }
             en.phase = random.nextFloat() * 6.28f;
             enemies.add(en);
@@ -1008,7 +1145,7 @@ public class VeliPlatformerJumpView extends View {
         }
 
         // 7B. Karşıdan Saldıran Düşmanlar (👾 / 🦇 / 🤖)
-        String[] enemyIcons = new String[]{"👾", "🦇", "🤖"};
+        String[] enemyIcons = new String[]{"👾", "🦇", "👹", "🤖", "🦅", "🕷️"};
         for (AttackingEnemy en : enemies) {
             paint.setColor(0xDD991B1B);
             canvas.drawCircle(en.x, en.y, en.radius + 3f * dp, paint);
@@ -1017,7 +1154,7 @@ public class VeliPlatformerJumpView extends View {
             paint.setColor(0xFFFFFFFF);
             paint.setTextSize(19f * sp);
             paint.setTextAlign(Paint.Align.CENTER);
-            canvas.drawText(enemyIcons[en.enemyType % enemyIcons.length], en.x, en.y + 7f * dp, paint);
+            canvas.drawText(enemyIcons[en.enemyType % enemyIcons.length] + (en.hp > 1 ? "2" : ""), en.x, en.y + 7f * dp, paint);
         }
 
         // 7C. Ateşlenen Lazer Işınları
@@ -1195,19 +1332,20 @@ public class VeliPlatformerJumpView extends View {
         paint.setColor(0xDD0F172A);
         canvas.drawRect(0, 0, w, hudH, paint);
 
-        float margin = 4f * dp;
-        float tabW = (w - margin * 7f) / 6f;
+        float margin = 3f * dp;
+        float tabW = (w - margin * 11f) / 10f;
         float tabTop = 6f * dp;
         float tabBottom = 42f * dp;
-        for (int i = 0; i < 6; i++) {
+        for (int i = 0; i < 10; i++) {
             float left = margin + i * (tabW + margin);
             parkourTabRects[i].set(left, tabTop, left + tabW, tabBottom);
             boolean active = (stage == i + 1);
-            paint.setColor(active ? 0xFFFF6D00 : 0xFF334155);
-            canvas.drawRoundRect(parkourTabRects[i], 7f * dp, 7f * dp, paint);
+            boolean unlocked = (i + 1 <= maxUnlockedStage);
+            paint.setColor(active ? 0xFFFF6D00 : (unlocked ? 0xFF2563EB : 0xFF334155));
+            canvas.drawRoundRect(parkourTabRects[i], 6f * dp, 6f * dp, paint);
 
             paint.setColor(0xFFFFFFFF);
-            paint.setTextSize(11.5f * sp);
+            paint.setTextSize(10.5f * sp);
             paint.setFakeBoldText(active);
             paint.setTextAlign(Paint.Align.CENTER);
             canvas.drawText(SHORT_TAB_NAMES[i], parkourTabRects[i].centerX(), tabBottom - 11f * dp, paint);
@@ -1420,11 +1558,11 @@ public class VeliPlatformerJumpView extends View {
                 laserAmmo += 2;
                 spawnSparkles(playerX, playerY, 0xFFFFD600, 26);
                 if (listener != null) listener.onStarCollected();
-                int nextStage = (stage % 6) + 1;
+                int nextStage = (stage % 10) + 1;
                 loadParkourStage(nextStage);
                 return;
             } else if (finishGateX < -80f * dp) {
-                int nextStage = (stage % 6) + 1;
+                int nextStage = (stage % 10) + 1;
                 loadParkourStage(nextStage);
                 return;
             }
@@ -1452,12 +1590,17 @@ public class VeliPlatformerJumpView extends View {
             while (enIt.hasNext()) {
                 AttackingEnemy en = enIt.next();
                 if (beam.x + beam.length >= en.x - en.radius && beam.x <= en.x + en.radius
-                        && Math.abs(beam.y - en.y) <= en.radius + 18f * dp) {
-                    score += 35;
-                    spawnSparkles(en.x, en.y, 0xFFFF6D00, 18);
+                        && Math.abs(beam.y - en.y) <= en.radius + 20f * dp) {
+                    en.hp--;
+                    spawnSparkles(en.x, en.y, 0xFFFF6D00, 16);
                     if (listener != null) listener.onStarCollected();
+                    if (en.hp <= 0) {
+                        score += 35;
+                        enIt.remove();
+                    } else {
+                        score += 15;
+                    }
                     notifyStats();
-                    enIt.remove();
                     hitTarget = true;
                     break;
                 }
@@ -1473,10 +1616,12 @@ public class VeliPlatformerJumpView extends View {
         while (enemyIt.hasNext()) {
             AttackingEnemy en = enemyIt.next();
             en.x -= (scrollSpeed + en.vx);
-            if (en.enemyType == 1) {
-                en.y = en.baseY + (float) Math.sin(animTick * 1.6f + en.phase) * 26f * dp;
+            if (en.enemyType == 1 || en.enemyType == 5) {
+                en.y = en.baseY + (float) Math.sin(animTick * 1.7f + en.phase) * 28f * dp;
             } else if (en.enemyType == 2) {
-                en.y = en.baseY - (float) Math.abs(Math.sin(animTick * 1.4f + en.phase)) * 42f * dp;
+                en.y = en.baseY - (float) Math.abs(Math.sin(animTick * 1.4f + en.phase)) * 44f * dp;
+            } else if (en.enemyType == 4) {
+                en.y = en.baseY + (float) Math.cos(animTick * 1.9f + en.phase) * 38f * dp;
             }
 
             float dx = en.x - playerX;

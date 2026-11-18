@@ -37,6 +37,9 @@ public class TimerActivity extends Activity {
     private Button btnPostBreakSwitch;
     private Button btnFinishCurrentSubject;
     private Button btnPauseResumeTimer;
+    private Button btnRequestBreakPhonePermission;
+    private int consecutiveBackPresses = 0;
+    private long lastBackPressTimeMs = 0L;
 
     private TimerForegroundService timerService;
     private boolean serviceBound = false;
@@ -90,6 +93,10 @@ public class TimerActivity extends Activity {
         btnPostBreakSwitch = findViewById(R.id.btnPostBreakSwitch);
         btnFinishCurrentSubject = findViewById(R.id.btnFinishCurrentSubject);
         btnPauseResumeTimer = findViewById(R.id.btnPauseResumeTimer);
+        btnRequestBreakPhonePermission = findViewById(R.id.btnRequestBreakPhonePermission);
+        if (btnRequestBreakPhonePermission != null) {
+            btnRequestBreakPhonePermission.setOnClickListener(v -> handleTimerBreakPermissionClick());
+        }
         Button btnCancelSession = findViewById(R.id.btnCancelSession);
 
         ThemeHelper.Palette palette = ThemeHelper.getPalette(this);
@@ -169,6 +176,84 @@ public class TimerActivity extends Activity {
         Intent bindIntent = new Intent(this, TimerForegroundService.class);
         bindService(bindIntent, conn, Context.BIND_AUTO_CREATE);
         uiHandler.post(uiRefreshRunnable);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        TimerForegroundService.setStudentActivityInForeground(true);
+    }
+
+    @Override
+    protected void onPause() {
+        TimerForegroundService.setStudentActivityInForeground(false);
+        super.onPause();
+    }
+
+    @Override
+    protected void onUserLeaveHint() {
+        super.onUserLeaveHint();
+        boolean canLeave = StudyDatabaseHelper.isParentAlwaysAllowOtherFeatures(this)
+                || (serviceBound && timerService != null
+                && timerService.getCurrentPhase() == TimerForegroundService.PHASE_BREAK
+                && StudyDatabaseHelper.isOneTimeBreakPhoneGranted(this));
+        if (!canLeave && serviceBound && timerService != null) {
+            timerService.forceBringStudentAppToFront();
+        }
+    }
+
+    @Override
+    public void onBackPressed() {
+        boolean alwaysAllowed = StudyDatabaseHelper.isParentAlwaysAllowOtherFeatures(this);
+        boolean inBreak = serviceBound && timerService != null
+                && timerService.getCurrentPhase() == TimerForegroundService.PHASE_BREAK;
+        boolean oneTimeGranted = inBreak && StudyDatabaseHelper.isOneTimeBreakPhoneGranted(this);
+
+        if (alwaysAllowed || oneTimeGranted) {
+            TimerForegroundService.setSystemExemptLaunch(true);
+            moveTaskToBack(true);
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        if (now - lastBackPressTimeMs > 4000L) {
+            consecutiveBackPresses = 1;
+        } else {
+            consecutiveBackPresses++;
+        }
+        lastBackPressTimeMs = now;
+
+        if (consecutiveBackPresses >= 3) {
+            consecutiveBackPresses = 0;
+            String speech = "Annenden ya da babandan izin alarak, telefonunun diğer özelliklerini bir seferlik mola süresince kullanabilirsin";
+            if (serviceBound && timerService != null) {
+                timerService.speakNow(speech);
+            }
+            StudyDatabaseHelper.setBreakPermissionButtonUnlocked(this, true);
+            updateTimerScreen();
+            if (inBreak) {
+                Toast.makeText(this, "📱 " + speech + ". Ekrandaki 'İzin İste' butonuna basabilirsin.", Toast.LENGTH_LONG).show();
+            } else {
+                Toast.makeText(this, "🔒 " + speech + " (Mola süresine geçtiğinde izin isteyebilirsin).", Toast.LENGTH_LONG).show();
+            }
+        } else {
+            Toast.makeText(this, "🔒 Çalışma veya mola sırasında uygulama kapatılamaz.", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void handleTimerBreakPermissionClick() {
+        boolean alwaysAllowed = StudyDatabaseHelper.isParentAlwaysAllowOtherFeatures(this);
+        boolean inBreak = serviceBound && timerService != null
+                && timerService.getCurrentPhase() == TimerForegroundService.PHASE_BREAK;
+        boolean oneTimeGranted = inBreak && StudyDatabaseHelper.isOneTimeBreakPhoneGranted(this);
+
+        if (alwaysAllowed || oneTimeGranted) {
+            TimerForegroundService.setSystemExemptLaunch(true);
+            moveTaskToBack(true);
+        } else if (inBreak) {
+            LanSyncServer.sendBreakPhonePermissionRequestToParents(this);
+            updateTimerScreen();
+        }
     }
 
     @Override
@@ -253,6 +338,29 @@ public class TimerActivity extends Activity {
             btnPauseResumeTimer.setText("▶️ Devam Et");
         } else {
             btnPauseResumeTimer.setText("⏸️ Duraklat");
+        }
+
+        if (btnRequestBreakPhonePermission != null) {
+            boolean alwaysAllowed = StudyDatabaseHelper.isParentAlwaysAllowOtherFeatures(this);
+            boolean inBreak = (phase == TimerForegroundService.PHASE_BREAK);
+            boolean oneTimeGranted = inBreak && StudyDatabaseHelper.isOneTimeBreakPhoneGranted(this);
+            boolean unlocked = inBreak && StudyDatabaseHelper.isBreakPermissionButtonUnlocked(this);
+
+            if (inBreak && (alwaysAllowed || oneTimeGranted)) {
+                btnRequestBreakPhonePermission.setVisibility(View.VISIBLE);
+                btnRequestBreakPhonePermission.setBackground(ThemeHelper.createButtonDrawable(this, 0xFF16A34A));
+                btnRequestBreakPhonePermission.setText("📱 Telefonun Diğer Özelliklerini Kullan (İzin Verildi - Arka Plana At)");
+            } else if (inBreak && unlocked) {
+                btnRequestBreakPhonePermission.setVisibility(View.VISIBLE);
+                btnRequestBreakPhonePermission.setBackground(ThemeHelper.createButtonDrawable(this, 0xFFD97706));
+                if (StudyDatabaseHelper.isBreakPermissionPending(this)) {
+                    btnRequestBreakPhonePermission.setText("⏳ Veli Onayı Bekleniyor... (Tekrar İstek Gönder)");
+                } else {
+                    btnRequestBreakPhonePermission.setText("📱 Veli'den Bir Seferlik Telefon İzni İste");
+                }
+            } else {
+                btnRequestBreakPhonePermission.setVisibility(View.GONE);
+            }
         }
     }
 }

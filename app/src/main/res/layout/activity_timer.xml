@@ -180,6 +180,19 @@ En son çalıştığın dersten mi devam edeceksin?"
                 android:textSize="13sp" />
         </LinearLayout>
 
+        <!-- YENİ: Molada Çok Fazla Geri Tuşuna Basılınca Açılan Veli İzin İsteme / Telefon Kullanma Butonu -->
+        <Button
+            android:id="@+id/btnRequestBreakPhonePermission"
+            android:layout_width="match_parent"
+            android:layout_height="60dp"
+            android:layout_marginBottom="12dp"
+            android:text="📱 Veli'den Bir Seferlik Telefon İzni İste"
+            android:textAllCaps="false"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+
         <!-- "Bu dersin ödevi bitti" / "Bu dersin testi bitti" / "Kitap okumayı bitir" Ana Butonu -->
         <Button
             android:id="@+id/btnFinishCurrentSubject"

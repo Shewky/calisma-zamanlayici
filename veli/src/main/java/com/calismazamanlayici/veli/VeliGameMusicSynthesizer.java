@@ -360,9 +360,85 @@ public class VeliGameMusicSynthesizer {
         playPluckedChordAsync(new int[]{247, 220}, 95, 320);
     }
 
+    /**
+     * Tatlı, yumuşak yaylı zıplama sesi (240 Hz -> 680 Hz tatlı yukarı kayan balon/yay tınısı).
+     */
     public void playJumpEffect() {
         if (muted) return;
-        playPluckedChordAsync(new int[]{330, 440}, 32, 220);
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    int durationMs = 175;
+                    int totalSamples = (SAMPLE_RATE * durationMs) / 1000;
+                    short[] pcm = new short[totalSamples];
+                    double phase = 0.0;
+                    for (int i = 0; i < totalSamples; i++) {
+                        double p = (double) i / totalSamples;
+                        // Tatlı kavisli yukarı frekans kayması (Sweet Bubble Boing)
+                        double freq = 250.0 + 460.0 * Math.pow(p, 0.72) + Math.sin(p * Math.PI * 5.0) * 18.0;
+                        phase += (2.0 * Math.PI * freq) / SAMPLE_RATE;
+                        double env = Math.sin(Math.PI * p) * Math.exp(-1.4 * p);
+                        double wave = Math.sin(phase) * 0.82 + Math.sin(phase * 2.0) * 0.18;
+                        pcm[i] = (short) (wave * env * 6200);
+                    }
+                    AudioTrack sfx = new AudioTrack(
+                            AudioManager.STREAM_MUSIC,
+                            SAMPLE_RATE,
+                            AudioFormat.CHANNEL_OUT_MONO,
+                            AudioFormat.ENCODING_PCM_16BIT,
+                            totalSamples * 2,
+                            AudioTrack.MODE_STATIC
+                    );
+                    sfx.write(pcm, 0, totalSamples);
+                    sfx.play();
+                    Thread.sleep(durationMs + 40L);
+                    sfx.stop();
+                    sfx.release();
+                } catch (Exception ignored) {
+                }
+            }
+        }).start();
+    }
+
+    /**
+     * Lazer ateşleme sesi (1450 Hz -> 260 Hz hızlı fütüristik lazer ışını 'Pew!' efekti).
+     */
+    public void playLaserEffect() {
+        if (muted) return;
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    int durationMs = 150;
+                    int totalSamples = (SAMPLE_RATE * durationMs) / 1000;
+                    short[] pcm = new short[totalSamples];
+                    double phase = 0.0;
+                    for (int i = 0; i < totalSamples; i++) {
+                        double p = (double) i / totalSamples;
+                        double freq = 1420.0 * Math.exp(-2.4 * p) + 180.0;
+                        phase += (2.0 * Math.PI * freq) / SAMPLE_RATE;
+                        double env = (i < 120 ? (i / 120.0) : 1.0) * Math.exp(-2.8 * p);
+                        double wave = Math.sin(phase) * 0.75 + Math.sin(phase * 3.0) * 0.25;
+                        pcm[i] = (short) (wave * env * 6600);
+                    }
+                    AudioTrack sfx = new AudioTrack(
+                            AudioManager.STREAM_MUSIC,
+                            SAMPLE_RATE,
+                            AudioFormat.CHANNEL_OUT_MONO,
+                            AudioFormat.ENCODING_PCM_16BIT,
+                            totalSamples * 2,
+                            AudioTrack.MODE_STATIC
+                    );
+                    sfx.write(pcm, 0, totalSamples);
+                    sfx.play();
+                    Thread.sleep(durationMs + 35L);
+                    sfx.stop();
+                    sfx.release();
+                } catch (Exception ignored) {
+                }
+            }
+        }).start();
     }
 
     public void playCoinEffect() {

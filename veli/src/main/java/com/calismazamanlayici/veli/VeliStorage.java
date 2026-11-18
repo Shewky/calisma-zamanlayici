@@ -279,12 +279,14 @@ public class VeliStorage {
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         String childrenJsonStr = prefs.getString(KEY_PAIRED_CHILDREN, "[]");
         root.put("pairedChildren", new JSONArray(childrenJsonStr));
+        root.put("gameProgress", exportGameProgressJson(context));
         return root;
     }
 
     public static void restoreFromVeliBackupJson(Context context, JSONObject root) throws Exception {
         String role = root.optString("parentRole", "ANNE");
         String theme = root.optString("themeKey", VeliThemeHelper.THEME_NAVY_EMERALD);
+        restoreGameProgressJson(context, root.optJSONObject("gameProgress"));
         JSONArray childrenArr = root.optJSONArray("pairedChildren");
         if (childrenArr == null) childrenArr = new JSONArray();
 
@@ -296,4 +298,136 @@ public class VeliStorage {
                 .putString(KEY_PAIRED_CHILDREN, childrenArr.toString())
                 .apply();
     }
+
+    // =========================================================================
+    // KALICI OYUN SEVİYESİ HAFIZASI VE YEDEKTEN GERİ YÜKLEME SİSTEMİ
+    // =========================================================================
+    private static final String KEY_GAME_LEVEL_PREFIX = "saved_game_level_";
+    private static final String PREFS_TOWER = "BulmacaKulesiSavePrefs";
+
+    public static int getSavedGameLevel(Context context, String gameKey, int defaultLevel) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        int lvl = prefs.getInt(KEY_GAME_LEVEL_PREFIX + gameKey, defaultLevel);
+        return Math.max(1, lvl);
+    }
+
+    public static void saveGameLevel(Context context, String gameKey, int level) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        prefs.edit().putInt(KEY_GAME_LEVEL_PREFIX + gameKey, Math.max(1, level)).apply();
+        VeliBackupManager.saveVeliBackupAsync(context);
+    }
+
+    public static JSONObject exportGameProgressJson(Context context) {
+        JSONObject gp = new JSONObject();
+        try {
+            SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            String[] keys = new String[]{
+                    "jump_current_stage", "jump_max_stage", "jump_high_score",
+                    "car_race_level", "car_race_high_score",
+                    "xox_level", "xox_wins",
+                    "checkers_level", "checkers_wins",
+                    "quiz_level_0", "quiz_level_1", "quiz_level_2", "quiz_level_3",
+                    "quiz_level_4", "quiz_level_5", "quiz_level_6", "quiz_level_7"
+            };
+            for (String k : keys) {
+                gp.put(k, prefs.getInt(KEY_GAME_LEVEL_PREFIX + k, 1));
+            }
+            SharedPreferences towerPrefs = context.getSharedPreferences(PREFS_TOWER, Context.MODE_PRIVATE);
+            gp.put("tower_unlockedMaxFloor", towerPrefs.getInt("unlockedMaxFloor", 1));
+            gp.put("tower_currentFloor", towerPrefs.getInt("currentFloor", 1));
+            gp.put("tower_totalGoldenScrews", towerPrefs.getInt("totalGoldenScrews", 6));
+            gp.put("tower_totalCrystalsCollected", towerPrefs.getInt("totalCrystalsCollected", 0));
+            gp.put("tower_equippedHat", towerPrefs.getInt("equippedHat", 0));
+            gp.put("tower_equippedCape", towerPrefs.getInt("equippedCape", 0));
+            gp.put("tower_equippedBag", towerPrefs.getInt("equippedBag", 0));
+            gp.put("tower_ownedMask", towerPrefs.getInt("ownedMask", 1));
+        } catch (Exception ignored) {
+        }
+        return gp;
+    }
+
+    public static void restoreGameProgressJson(Context context, JSONObject gp) {
+        if (gp == null) return;
+        try {
+            SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            SharedPreferences.Editor ed = prefs.edit();
+            String[] keys = new String[]{
+                    "jump_current_stage", "jump_max_stage", "jump_high_score",
+                    "car_race_level", "car_race_high_score",
+                    "xox_level", "xox_wins",
+                    "checkers_level", "checkers_wins",
+                    "quiz_level_0", "quiz_level_1", "quiz_level_2", "quiz_level_3",
+                    "quiz_level_4", "quiz_level_5", "quiz_level_6", "quiz_level_7"
+            };
+            for (String k : keys) {
+                if (gp.has(k)) {
+                    ed.putInt(KEY_GAME_LEVEL_PREFIX + k, gp.optInt(k, 1));
+                }
+            }
+            ed.apply();
+
+            SharedPreferences towerPrefs = context.getSharedPreferences(PREFS_TOWER, Context.MODE_PRIVATE);
+            towerPrefs.edit()
+                    .putInt("unlockedMaxFloor", gp.optInt("tower_unlockedMaxFloor", 1))
+                    .putInt("currentFloor", gp.optInt("tower_currentFloor", 1))
+                    .putInt("totalGoldenScrews", gp.optInt("tower_totalGoldenScrews", 6))
+                    .putInt("totalCrystalsCollected", gp.optInt("tower_totalCrystalsCollected", 0))
+                    .putInt("equippedHat", gp.optInt("tower_equippedHat", 0))
+                    .putInt("equippedCape", gp.optInt("tower_equippedCape", 0))
+                    .putInt("equippedBag", gp.optInt("tower_equippedBag", 0))
+                    .putInt("ownedMask", gp.optInt("tower_ownedMask", 1))
+                    .apply();
+        } catch (Exception ignored) {
+        }
+    }
+
+
+    private static final String KEY_ALLOW_OTHER_FEATURES_PREFIX = "child_allow_other_features_";
+    private static final String KEY_PENDING_BREAK_REQ_CHILD_ID = "pending_break_req_child_id";
+    private static final String KEY_PENDING_BREAK_REQ_CHILD_NAME = "pending_break_req_child_name";
+    private static final String KEY_PENDING_BREAK_REQ_CHILD_IP = "pending_break_req_child_ip";
+
+    public static boolean isChildAllowedOtherPhoneFeatures(Context context, String childId) {
+        if (childId == null || childId.isEmpty()) return false;
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        return prefs.getBoolean(KEY_ALLOW_OTHER_FEATURES_PREFIX + childId.trim(), false);
+    }
+
+    public static void setChildAllowedOtherPhoneFeatures(Context context, String childId, boolean allow) {
+        if (childId == null || childId.isEmpty()) return;
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        prefs.edit().putBoolean(KEY_ALLOW_OTHER_FEATURES_PREFIX + childId.trim(), allow).apply();
+        VeliBackupManager.saveVeliBackupAsync(context);
+    }
+
+    public static void savePendingBreakPhoneRequest(Context context, String childId, String childName, String childIp) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        prefs.edit()
+                .putString(KEY_PENDING_BREAK_REQ_CHILD_ID, childId != null ? childId : "")
+                .putString(KEY_PENDING_BREAK_REQ_CHILD_NAME, childName != null ? childName : "Öğrenci")
+                .putString(KEY_PENDING_BREAK_REQ_CHILD_IP, childIp != null ? childIp : "")
+                .apply();
+    }
+
+    public static void clearPendingBreakPhoneRequest(Context context) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        prefs.edit()
+                .remove(KEY_PENDING_BREAK_REQ_CHILD_ID)
+                .remove(KEY_PENDING_BREAK_REQ_CHILD_NAME)
+                .remove(KEY_PENDING_BREAK_REQ_CHILD_IP)
+                .apply();
+    }
+
+    public static String getPendingBreakReqChildId(Context context) {
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(KEY_PENDING_BREAK_REQ_CHILD_ID, "");
+    }
+
+    public static String getPendingBreakReqChildName(Context context) {
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(KEY_PENDING_BREAK_REQ_CHILD_NAME, "");
+    }
+
+    public static String getPendingBreakReqChildIp(Context context) {
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(KEY_PENDING_BREAK_REQ_CHILD_IP, "");
+    }
+
 }

@@ -63,11 +63,15 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
 
     public static final String ACTION_SPEAK = "com.calismazamanlayici.veli.ACTION_SPEAK";
     public static final String EXTRA_SPEECH_TEXT = "extra_speech_text";
+    public static final String ACTION_APPROVE_BREAK_PHONE = "com.calismazamanlayici.veli.ACTION_APPROVE_BREAK_PHONE";
+    public static final String ACTION_DENY_BREAK_PHONE = "com.calismazamanlayici.veli.ACTION_DENY_BREAK_PHONE";
 
     private static final String CHANNEL_ID = "VeliMonitorChannel";
     private static final String CALL_ALERT_CHANNEL_ID = "VeliIncomingCallAlertChannel";
+    private static final String SILENT_BREAK_REQ_CHANNEL_ID = "VeliSilentBreakRequestChannel";
     private static final int NOTIF_ID = 2001;
     private static final int CALL_ALERT_NOTIF_ID = 2002;
+    private static final int BREAK_REQ_NOTIF_ID = 2003;
 
     private final IBinder binder = new LocalBinder();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -178,10 +182,23 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
     public int onStartCommand(Intent intent, int flags, int startId) {
         acquireLocks();
         startForeground(NOTIF_ID, buildNotification("Veli Arka Plan Çağrı ve Takip Servisi Aktif"));
-        if (intent != null && ACTION_SPEAK.equals(intent.getAction())) {
-            String text = intent.getStringExtra(EXTRA_SPEECH_TEXT);
-            if (text != null && !text.isEmpty()) {
-                speakNow(text);
+        if (intent != null && intent.getAction() != null) {
+            String act = intent.getAction();
+            if (ACTION_SPEAK.equals(act)) {
+                String text = intent.getStringExtra(EXTRA_SPEECH_TEXT);
+                if (text != null && !text.isEmpty()) {
+                    speakNow(text);
+                }
+            } else if (ACTION_APPROVE_BREAK_PHONE.equals(act) || ACTION_DENY_BREAK_PHONE.equals(act)) {
+                boolean approve = ACTION_APPROVE_BREAK_PHONE.equals(act);
+                String cid = intent.getStringExtra("EXTRA_CHILD_ID");
+                String cip = intent.getStringExtra("EXTRA_CHILD_IP");
+                sendBreakPhoneDecisionToChild(this, cid, cip, approve);
+                try {
+                    NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                    if (nm != null) nm.cancel(BREAK_REQ_NOTIF_ID);
+                } catch (Exception ignored) {
+                }
             }
         }
         return START_STICKY;
@@ -327,6 +344,15 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
                         } else if (msg.startsWith("CZ_CANCEL_CALL|")) {
                             // Öğrenci çağrıyı iptal etti!
                             cancelIncomingOrActiveCall();
+                        } else if (msg.startsWith("CZ_BREAK_PHONE_REQ|")) {
+                            String[] parts = msg.split("\|");
+                            if (parts.length >= 3) {
+                                String cid = parts[1];
+                                String cname = parts[2];
+                                String cip = (senderIp != null && !senderIp.isEmpty())
+                                        ? senderIp : (parts.length >= 4 ? parts[3] : "");
+                                handleIncomingBreakPhoneRequest(cid, cname, cip);
+                            }
                         }
                     }
                 } catch (Exception ignored) {
@@ -463,6 +489,18 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
                     }
                     handleIncomingChildCall(childId, childName, childIp);
                 }
+            } else if (path.startsWith("/request_break_phone")) {
+                String cid = parsedUri.getQueryParameter("childId");
+                String cname = parsedUri.getQueryParameter("childName");
+                String cip = parsedUri.getQueryParameter("childIp");
+                if (cname != null) {
+                    try {
+                        cname = URLDecoder.decode(cname, "UTF-8");
+                    } catch (Exception ignored) {
+                    }
+                }
+                if (cip == null || cip.isEmpty()) cip = remoteIp;
+                handleIncomingBreakPhoneRequest(cid != null ? cid : "", cname != null ? cname : "Öğrenci", cip);
             } else if (path.startsWith("/end_call")) {
                 cancelIncomingOrActiveCall();
             } else if (path.startsWith("/save_child_backup")) {
@@ -854,6 +892,16 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
             );
             callCh.setDescription("Çocuk çağrı gönderdiğinde arka planda sesli ve ekran üstü uyarı verir");
             nm.createNotificationChannel(callCh);
+
+            NotificationChannel silentReqCh = new NotificationChannel(
+                    SILENT_BREAK_REQ_CHANNEL_ID,
+                    "Mola Telefon Kullanım İzin İstekleri (Sessiz Bildirim)",
+                    NotificationManager.IMPORTANCE_LOW
+            );
+            silentReqCh.setDescription("Öğrenci molada bir seferlik telefonun diğer özelliklerini kullanmak için izin istediğinde sessiz bildirim gösterir");
+            silentReqCh.setSound(null, null);
+            silentReqCh.enableVibration(false);
+            nm.createNotificationChannel(silentReqCh);
         }
     }
 
@@ -906,4 +954,204 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
         }
         super.onDestroy();
     }
+
+    private long lastBreakReqTimeMs = 0L;
+
+    /**
+     * Öğrenci molada "Telefonun diğer özelliklerini kullanmak için izin iste" butonuna bastığında
+     * Veli telefonuna SESSİZ BİLDİRİM düşürür ve Veli uygulaması açıksa onay penceresini gösterir.
+     */
+    private synchronized void handleIncomingBreakPhoneRequest(final String childId, final String childName, final String childIp) {
+        long now = System.currentTimeMillis();
+        if (now - lastBreakReqTimeMs < 2000L) return;
+        lastBreakReqTimeMs = now;
+
+        if (!childId.isEmpty() && childIp != null && !childIp.isEmpty()) {
+            VeliStorage.updateExistingChildNetworkInfo(this, childId, childName, 4, childIp);
+        }
+        VeliStorage.savePendingBreakPhoneRequest(this, childId, childName, childIp);
+
+        final String promptText = childName + " molada bir seferlik Telefonun Diğer özelliklerini kullanmak istiyor izin veriyor musun?";
+
+        mainHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                showSilentBreakPermissionNotification(childId, childName, childIp, promptText);
+                ChildDetailActivity.notifyBreakPermissionRequestIfVisible(childId, childName, childIp, promptText);
+                VeliMainActivity.notifyBreakPermissionRequestIfVisible(childId, childName, childIp, promptText);
+            }
+        });
+    }
+
+    private void showSilentBreakPermissionNotification(String childId, String childName, String childIp, String promptText) {
+        try {
+            int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                flags |= PendingIntent.FLAG_IMMUTABLE;
+            }
+
+            Intent openDetail = new Intent(this, ChildDetailActivity.class);
+            openDetail.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            openDetail.putExtra("EXTRA_CHILD_ID", childId);
+            openDetail.putExtra("EXTRA_CHILD_NAME", childName);
+            openDetail.putExtra("EXTRA_CHILD_IP", childIp);
+            openDetail.putExtra("EXTRA_SHOW_BREAK_PERMISSION_PROMPT", true);
+            PendingIntent contentPi = PendingIntent.getActivity(this, 201, openDetail, flags);
+
+            Intent approveIntent = new Intent(this, ParentBackgroundService.class);
+            approveIntent.setAction(ACTION_APPROVE_BREAK_PHONE);
+            approveIntent.putExtra("EXTRA_CHILD_ID", childId);
+            approveIntent.putExtra("EXTRA_CHILD_IP", childIp);
+            PendingIntent approvePi = PendingIntent.getService(this, 202, approveIntent, flags);
+
+            Intent denyIntent = new Intent(this, ParentBackgroundService.class);
+            denyIntent.setAction(ACTION_DENY_BREAK_PHONE);
+            denyIntent.putExtra("EXTRA_CHILD_ID", childId);
+            denyIntent.putExtra("EXTRA_CHILD_IP", childIp);
+            PendingIntent denyPi = PendingIntent.getService(this, 203, denyIntent, flags);
+
+            Notification.Builder b = (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                    ? new Notification.Builder(this, SILENT_BREAK_REQ_CHANNEL_ID)
+                    : new Notification.Builder(this);
+
+            b.setContentTitle("📱 " + childName + " Telefon Kullanım İzni İstiyor")
+                    .setContentText(promptText)
+                    .setStyle(new Notification.BigTextStyle().bigText(promptText))
+                    .setSmallIcon(android.R.drawable.ic_dialog_info)
+                    .setContentIntent(contentPi)
+                    .setAutoCancel(true)
+                    .addAction(android.R.drawable.ic_input_add, "Evet, İzin Ver", approvePi)
+                    .addAction(android.R.drawable.ic_delete, "Hayır", denyPi);
+
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+                b.setDefaults(0);
+                b.setSound(null);
+                b.setVibrate(null);
+            }
+
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null) {
+                nm.notify(BREAK_REQ_NOTIF_ID, b.build());
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    public static void sendBreakPhoneDecisionToChild(final Context context, final String childId, final String childIp, final boolean approve) {
+        VeliStorage.clearPendingBreakPhoneRequest(context);
+        try {
+            NotificationManager nm = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null) nm.cancel(BREAK_REQ_NOTIF_ID);
+        } catch (Exception ignored) {
+        }
+
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                String targetIp = childIp;
+                if ((targetIp == null || targetIp.isEmpty()) && childId != null) {
+                    for (VeliStorage.PairedChild c : VeliStorage.getPairedChildren(context)) {
+                        if (c.childId.equalsIgnoreCase(childId) && c.ipAddress != null && !c.ipAddress.isEmpty()) {
+                            targetIp = c.ipAddress;
+                            break;
+                        }
+                    }
+                }
+
+                boolean sentOk = false;
+                String udpCmd = approve ? ("CZ_BREAK_PHONE_APPROVED|" + childId) : ("CZ_BREAK_PHONE_DENIED|" + childId);
+                try {
+                    byte[] data = udpCmd.getBytes("UTF-8");
+                    DatagramSocket ds = new DatagramSocket();
+                    ds.setBroadcast(true);
+                    if (targetIp != null && !targetIp.isEmpty()) {
+                        ds.send(new DatagramPacket(data, data.length,
+                                InetAddress.getByName(targetIp), DISCOVERY_UDP_PORT));
+                        sentOk = true;
+                    }
+                    ds.send(new DatagramPacket(data, data.length,
+                            InetAddress.getByName("255.255.255.255"), DISCOVERY_UDP_PORT));
+                    ds.close();
+                } catch (Exception ignored) {
+                }
+
+                if (targetIp != null && !targetIp.isEmpty()) {
+                    try {
+                        URL url = new URL("http://" + targetIp + ":" + STUDENT_HTTP_PORT
+                                + "/approve_break_phone?approved=" + (approve ? "1" : "0"));
+                        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                        conn.setRequestMethod("GET");
+                        conn.setRequestProperty("Connection", "close");
+                        conn.setConnectTimeout(1500);
+                        conn.setReadTimeout(1500);
+                        if (conn.getResponseCode() == 200) {
+                            sentOk = true;
+                        }
+                        conn.disconnect();
+                    } catch (Exception ignored) {
+                    }
+                }
+
+                final boolean ok = sentOk;
+                new Handler(Looper.getMainLooper()).post(new Runnable() {
+                    @Override
+                    public void run() {
+                        String msg = approve
+                                ? "✅ Öğrenciye molada bir seferlik telefon kullanım izni verildi!"
+                                : "❌ Öğrencinin molada telefon kullanım isteği reddedildi.";
+                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show();
+                    }
+                });
+            }
+        }).start();
+    }
+
+    public static void pushAlwaysAllowPolicyToChild(final Context context, final String childId, final String childIp, final boolean allow) {
+        VeliStorage.setChildAllowedOtherPhoneFeatures(context, childId, allow);
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                String targetIp = childIp;
+                if ((targetIp == null || targetIp.isEmpty()) && childId != null) {
+                    for (VeliStorage.PairedChild c : VeliStorage.getPairedChildren(context)) {
+                        if (c.childId.equalsIgnoreCase(childId) && c.ipAddress != null && !c.ipAddress.isEmpty()) {
+                            targetIp = c.ipAddress;
+                            break;
+                        }
+                    }
+                }
+
+                String udpCmd = "CZ_SET_ALLOW_OTHER_FEATURES|" + (allow ? "1" : "0");
+                try {
+                    byte[] data = udpCmd.getBytes("UTF-8");
+                    DatagramSocket ds = new DatagramSocket();
+                    ds.setBroadcast(true);
+                    if (targetIp != null && !targetIp.isEmpty()) {
+                        ds.send(new DatagramPacket(data, data.length,
+                                InetAddress.getByName(targetIp), DISCOVERY_UDP_PORT));
+                    }
+                    ds.send(new DatagramPacket(data, data.length,
+                            InetAddress.getByName("255.255.255.255"), DISCOVERY_UDP_PORT));
+                    ds.close();
+                } catch (Exception ignored) {
+                }
+
+                if (targetIp != null && !targetIp.isEmpty()) {
+                    try {
+                        URL url = new URL("http://" + targetIp + ":" + STUDENT_HTTP_PORT
+                                + "/set_phone_feature_policy?allow=" + (allow ? "1" : "0"));
+                        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                        conn.setRequestMethod("GET");
+                        conn.setRequestProperty("Connection", "close");
+                        conn.setConnectTimeout(1500);
+                        conn.setReadTimeout(1500);
+                        conn.getResponseCode();
+                        conn.disconnect();
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
+        }).start();
+    }
+
 }

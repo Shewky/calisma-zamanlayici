@@ -167,6 +167,14 @@ public class LanSyncServer {
                             String pIp = (senderIp != null && !senderIp.isEmpty())
                                     ? senderIp : (parts.length > 1 ? parts[1] : "");
                             triggerParentAcceptedCall(pIp);
+                        } else if (msg.startsWith("CZ_BREAK_PHONE_APPROVED|")) {
+                            handleBreakPhonePermissionResponse(true);
+                        } else if (msg.startsWith("CZ_BREAK_PHONE_DENIED|")) {
+                            handleBreakPhonePermissionResponse(false);
+                        } else if (msg.startsWith("CZ_SET_ALLOW_OTHER_FEATURES|")) {
+                            String[] parts = msg.split("\\|");
+                            boolean allow = parts.length > 1 && ("1".equals(parts[1]) || "true".equalsIgnoreCase(parts[1]));
+                            handleSetAlwaysAllowOtherFeatures(allow);
                         }
                     }
                 } catch (Exception ignored) {
@@ -355,6 +363,19 @@ public class LanSyncServer {
                 } else {
                     responseJson = new JSONObject();
                 }
+            } else if (path.startsWith("/approve_break_phone")) {
+                String appParam = parsedUri.getQueryParameter("approved");
+                boolean approved = (appParam == null) || "1".equals(appParam) || "true".equalsIgnoreCase(appParam);
+                handleBreakPhonePermissionResponse(approved);
+                responseJson = new JSONObject();
+                responseJson.put("ok", true);
+                responseJson.put("approved", approved);
+            } else if (path.startsWith("/set_phone_feature_policy")) {
+                String allowParam = parsedUri.getQueryParameter("allow");
+                boolean allow = "1".equals(allowParam) || "true".equalsIgnoreCase(allowParam);
+                handleSetAlwaysAllowOtherFeatures(allow);
+                responseJson = buildStatusJson();
+                responseJson.put("ok", true);
             } else if (path.startsWith("/end_call")) {
                 mainHandler.post(new Runnable() {
                     @Override
@@ -478,6 +499,8 @@ public class LanSyncServer {
         obj.put("todayTotalSeconds", db.getTotalSecondsForDate(today));
         obj.put("todayTotalFormatted", StudyDatabaseHelper.formatDurationTr(db.getTotalSecondsForDate(today)));
         obj.put("todaySessionCount", db.getStudySessionCountForDate(today));
+        obj.put("allowOtherPhoneFeatures", StudyDatabaseHelper.isParentAlwaysAllowOtherFeatures(service));
+        obj.put("oneTimeBreakPhoneGranted", StudyDatabaseHelper.isOneTimeBreakPhoneGranted(service));
         return obj;
     }
 
@@ -525,5 +548,107 @@ public class LanSyncServer {
         b.put("title", title);
         b.put("unlocked", unlocked);
         return b;
+    }
+
+    private void handleBreakPhonePermissionResponse(final boolean approved) {
+        StudyDatabaseHelper.setOneTimeBreakPhoneGranted(service, approved);
+        mainHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                service.wakeScreenBriefly();
+                if (approved) {
+                    String msg = "Veli izni onaylandı. Mola süresince telefonun diğer özelliklerini kullanabilirsin";
+                    service.announce(msg, false);
+                    Toast.makeText(service, "✅ " + msg, Toast.LENGTH_LONG).show();
+                } else {
+                    String msg = "Telefonun diğer özelliklerini kullanma isteğin veli tarafından reddedildi";
+                    service.announce(msg, false);
+                    Toast.makeText(service, "❌ " + msg, Toast.LENGTH_LONG).show();
+                }
+            }
+        });
+    }
+
+    private void handleSetAlwaysAllowOtherFeatures(final boolean allow) {
+        StudyDatabaseHelper.setParentAlwaysAllowOtherFeatures(service, allow);
+        mainHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                if (allow) {
+                    Toast.makeText(service, "🔓 Veli ayarı: Telefonun diğer özelliklerini kullanma izni açıldı.", Toast.LENGTH_LONG).show();
+                } else {
+                    Toast.makeText(service, "🔒 Veli ayarı: Telefonun diğer özellikleri kilitlendi.", Toast.LENGTH_LONG).show();
+                    if (!service.isBackgroundAllowedNow()) {
+                        service.forceBringStudentAppToFront();
+                    }
+                }
+            }
+        });
+    }
+
+    public static void sendBreakPhonePermissionRequestToParents(final Context context) {
+        StudyDatabaseHelper.setBreakPermissionPending(context, true);
+        final String childId = StudyDatabaseHelper.getChildDeviceId(context);
+        final String childName = StudyDatabaseHelper.getUserName(context);
+        final String myIp = getLocalIpAddress(context);
+
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                boolean sentAny = false;
+                String udpMsg = "CZ_BREAK_PHONE_REQ|" + childId + "|" + childName + "|" + myIp;
+                try {
+                    byte[] data = udpMsg.getBytes("UTF-8");
+                    DatagramSocket ds = new DatagramSocket();
+                    ds.setBroadcast(true);
+                    for (String role : new String[]{"ANNE", "BABA"}) {
+                        String pIp = StudyDatabaseHelper.getPairedParentIp(context, role);
+                        if (pIp != null && !pIp.isEmpty()) {
+                            ds.send(new DatagramPacket(data, data.length,
+                                    InetAddress.getByName(pIp), DISCOVERY_UDP_PORT));
+                            sentAny = true;
+                        }
+                    }
+                    ds.send(new DatagramPacket(data, data.length,
+                            InetAddress.getByName("255.255.255.255"), DISCOVERY_UDP_PORT));
+                    ds.close();
+                } catch (Exception ignored) {
+                }
+
+                for (String role : new String[]{"ANNE", "BABA"}) {
+                    String pIp = StudyDatabaseHelper.getPairedParentIp(context, role);
+                    if (pIp != null && !pIp.isEmpty()) {
+                        try {
+                            String q = "childId=" + java.net.URLEncoder.encode(childId, "UTF-8")
+                                    + "&childName=" + java.net.URLEncoder.encode(childName, "UTF-8")
+                                    + "&childIp=" + java.net.URLEncoder.encode(myIp, "UTF-8");
+                            java.net.URL url = new java.net.URL("http://" + pIp + ":" + PARENT_HTTP_PORT + "/request_break_phone?" + q);
+                            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+                            conn.setRequestMethod("GET");
+                            conn.setRequestProperty("Connection", "close");
+                            conn.setConnectTimeout(1500);
+                            conn.setReadTimeout(1500);
+                            if (conn.getResponseCode() == 200) {
+                                sentAny = true;
+                            }
+                            conn.disconnect();
+                        } catch (Exception ignored) {
+                        }
+                    }
+                }
+
+                final boolean ok = sentAny;
+                new Handler(Looper.getMainLooper()).post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (ok) {
+                            Toast.makeText(context, "📩 Anne / Baba uygulamasına izin isteği gönderildi! Onay bekleniyor...", Toast.LENGTH_LONG).show();
+                        } else {
+                            Toast.makeText(context, "📩 Ağdaki veli cihazlarına izin isteği yayınlandı! Onay bekleniyor...", Toast.LENGTH_LONG).show();
+                        }
+                    }
+                });
+            }
+        }).start();
     }
 }

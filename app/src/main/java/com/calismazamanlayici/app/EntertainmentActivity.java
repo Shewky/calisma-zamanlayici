@@ -57,6 +57,9 @@ public class EntertainmentActivity extends Activity {
     private Button btnJumpAction;
     private Button btnBackFromJumpGame;
     private PuzzleTowerGameView puzzleTowerView;
+    private CarRacingGameView carRacingView;
+    private XoxBoardGameView xoxBoardView;
+    private CheckersBoardGameView checkersBoardView;
     private PlatformerJumpGameView jumpGameView;
 
     private TextView tvActiveGameTitle;
@@ -104,18 +107,24 @@ public class EntertainmentActivity extends Activity {
         public final int accentColor;
         public final boolean isPlatformerJump;
         public final boolean isPuzzleTower;
+        public final int specialGameMode; // 0: Quiz, 1: Jump, 2: Tower, 3: CarRace, 4: XOX, 5: Checkers
 
         public GameDefinition(int index, String gameTitle, String subtitle, int accentColor, boolean isPlatformerJump) {
-            this(index, gameTitle, subtitle, accentColor, isPlatformerJump, false);
+            this(index, gameTitle, subtitle, accentColor, isPlatformerJump, false, isPlatformerJump ? 1 : 0);
         }
 
         public GameDefinition(int index, String gameTitle, String subtitle, int accentColor, boolean isPlatformerJump, boolean isPuzzleTower) {
+            this(index, gameTitle, subtitle, accentColor, isPlatformerJump, isPuzzleTower, isPlatformerJump ? 1 : (isPuzzleTower ? 2 : 0));
+        }
+
+        public GameDefinition(int index, String gameTitle, String subtitle, int accentColor, boolean isPlatformerJump, boolean isPuzzleTower, int specialGameMode) {
             this.index = index;
             this.gameTitle = gameTitle;
             this.subtitle = subtitle;
             this.accentColor = accentColor;
             this.isPlatformerJump = isPlatformerJump;
             this.isPuzzleTower = isPuzzleTower;
+            this.specialGameMode = specialGameMode;
         }
     }
 
@@ -439,6 +448,11 @@ public class EntertainmentActivity extends Activity {
             }
 
             @Override
+            public void onLaserFired() {
+                musicSynth.playLaserEffect();
+            }
+
+            @Override
             public void onStarCollected() {
                 musicSynth.playCoinEffect();
             }
@@ -457,6 +471,9 @@ public class EntertainmentActivity extends Activity {
             public void onExitRequested() {
                 if (jumpGameView != null) jumpGameView.stopGame();
         if (puzzleTowerView != null) puzzleTowerView.stopGame();
+        if (carRacingView != null) carRacingView.stopGame();
+        if (xoxBoardView != null) xoxBoardView.stopGame();
+        if (checkersBoardView != null) checkersBoardView.stopGame();
                 saveActiveGameSessionToCalendarIfNeeded();
                 showLobbyScreen();
             }
@@ -488,12 +505,81 @@ public class EntertainmentActivity extends Activity {
             @Override
             public void onExitRequested() {
                 if (puzzleTowerView != null) puzzleTowerView.stopGame();
+        if (carRacingView != null) carRacingView.stopGame();
+        if (xoxBoardView != null) xoxBoardView.stopGame();
+        if (checkersBoardView != null) checkersBoardView.stopGame();
                 saveActiveGameSessionToCalendarIfNeeded();
                 showLobbyScreen();
             }
         });
         puzzleTowerView.setVisibility(View.GONE);
         frameJumpGameCanvas.addView(puzzleTowerView);
+
+        carRacingView = new CarRacingGameView(this, new CarRacingGameView.CarRaceListener() {
+            @Override
+            public void onRaceSound(boolean positive) {
+                if (positive) musicSynth.playCoinEffect();
+                else musicSynth.playWrongEffect();
+            }
+
+            @Override
+            public void onCountdownTick(boolean isGo) {
+                musicSynth.playCountdownTick(isGo);
+            }
+
+            @Override
+            public void onExitRequested() {
+                if (carRacingView != null) carRacingView.stopGame();
+                saveActiveGameSessionToCalendarIfNeeded();
+                showLobbyScreen();
+            }
+        });
+        carRacingView.setVisibility(View.GONE);
+        frameJumpGameCanvas.addView(carRacingView);
+
+        xoxBoardView = new XoxBoardGameView(this, new XoxBoardGameView.XoxListener() {
+            @Override
+            public void onXoxSound(boolean positive) {
+                if (positive) musicSynth.playCoinEffect();
+                else musicSynth.playWrongEffect();
+            }
+
+            @Override
+            public void onCountdownTick(boolean isGo) {
+                musicSynth.playCountdownTick(isGo);
+            }
+
+            @Override
+            public void onExitRequested() {
+                if (xoxBoardView != null) xoxBoardView.stopGame();
+                saveActiveGameSessionToCalendarIfNeeded();
+                showLobbyScreen();
+            }
+        });
+        xoxBoardView.setVisibility(View.GONE);
+        frameJumpGameCanvas.addView(xoxBoardView);
+
+        checkersBoardView = new CheckersBoardGameView(this, new CheckersBoardGameView.CheckersListener() {
+            @Override
+            public void onCheckersSound(boolean positive) {
+                if (positive) musicSynth.playCoinEffect();
+                else musicSynth.playWrongEffect();
+            }
+
+            @Override
+            public void onCountdownTick(boolean isGo) {
+                musicSynth.playCountdownTick(isGo);
+            }
+
+            @Override
+            public void onExitRequested() {
+                if (checkersBoardView != null) checkersBoardView.stopGame();
+                saveActiveGameSessionToCalendarIfNeeded();
+                showLobbyScreen();
+            }
+        });
+        checkersBoardView.setVisibility(View.GONE);
+        frameJumpGameCanvas.addView(checkersBoardView);
 
         ThemeHelper.Palette p = ThemeHelper.getPalette(this);
         ThemeHelper.applyWindowAndSurface(this, scrollRootEntertainment);
@@ -517,6 +603,9 @@ public class EntertainmentActivity extends Activity {
         btnBackFromJumpGame.setOnClickListener(v -> {
             if (jumpGameView != null) jumpGameView.stopGame();
         if (puzzleTowerView != null) puzzleTowerView.stopGame();
+        if (carRacingView != null) carRacingView.stopGame();
+        if (xoxBoardView != null) xoxBoardView.stopGame();
+        if (checkersBoardView != null) checkersBoardView.stopGame();
             saveActiveGameSessionToCalendarIfNeeded();
             showLobbyScreen();
         });
@@ -529,6 +618,9 @@ public class EntertainmentActivity extends Activity {
         btnExitEntertainment.setOnClickListener(v -> {
             if (jumpGameView != null) jumpGameView.stopGame();
         if (puzzleTowerView != null) puzzleTowerView.stopGame();
+        if (carRacingView != null) carRacingView.stopGame();
+        if (xoxBoardView != null) xoxBoardView.stopGame();
+        if (checkersBoardView != null) checkersBoardView.stopGame();
             saveActiveGameSessionToCalendarIfNeeded();
             finish();
         });
@@ -701,6 +793,7 @@ public class EntertainmentActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        TimerForegroundService.setStudentActivityInForeground(true);
         musicSynth.startBackgroundMusic(activeGameIndex);
         timerHandler.removeCallbacks(secondTickRunnable);
         timerHandler.postDelayed(secondTickRunnable, 1000L);
@@ -708,9 +801,13 @@ public class EntertainmentActivity extends Activity {
 
     @Override
     protected void onPause() {
+        TimerForegroundService.setStudentActivityInForeground(false);
         timerHandler.removeCallbacks(secondTickRunnable);
         if (jumpGameView != null) jumpGameView.stopGame();
         if (puzzleTowerView != null) puzzleTowerView.stopGame();
+        if (carRacingView != null) carRacingView.stopGame();
+        if (xoxBoardView != null) xoxBoardView.stopGame();
+        if (checkersBoardView != null) checkersBoardView.stopGame();
         if (starEffectView != null) starEffectView.setSceneState(activeGameIndex, questionsSolvedInSession, getCurrentDifficultyTier(), false);
         musicSynth.stopBackgroundMusic();
         saveActiveGameSessionToCalendarIfNeeded();
@@ -739,6 +836,9 @@ public class EntertainmentActivity extends Activity {
         timerHandler.removeCallbacks(secondTickRunnable);
         if (jumpGameView != null) jumpGameView.stopGame();
         if (puzzleTowerView != null) puzzleTowerView.stopGame();
+        if (carRacingView != null) carRacingView.stopGame();
+        if (xoxBoardView != null) xoxBoardView.stopGame();
+        if (checkersBoardView != null) checkersBoardView.stopGame();
         musicSynth.stopBackgroundMusic();
         saveActiveGameSessionToCalendarIfNeeded();
 
@@ -770,11 +870,20 @@ public class EntertainmentActivity extends Activity {
     public static List<GameDefinition> buildAllGamesList(int grade, int customSubjectCount) {
         List<GameDefinition> games = new ArrayList<>();
         games.add(new GameDefinition(8, "🏃‍♂️ Süper Yıldız Zıplama Macerası",
-                "Tam ekran 6 parkurda 3-2-1 geri sayımla başla, ⚡ lazer biriktirip sol lazer butonuyla düşmanları yen!",
-                0xFFFF5722, true, false));
+                "Tam ekran 10 farklı parkurda ⚡ lazer biriktir, sol lazer butonuyla 6 farklı düşman sınıfını yen!",
+                0xFFFF5722, true, false, 1));
         games.add(new GameDefinition(1, "🏰 Bulmaca Kulesi",
-                "20 katlı sihirli kulede Bilge Baykuş Puhu ile dişli, boru, ayna ve yıldız bulmacalarını çöz, Büyük Kristali kurtar!",
-                0xFF7C3AED, false, true));
+                "20 benzersiz katta Bilge Baykuş Puhu ile bulmacaları çöz, karakterini özelleştir ve Kule Müzesini kur!",
+                0xFF7C3AED, false, true, 2));
+        games.add(new GameDefinition(6, "🏎️ Süper Turbo Araba Yarışı",
+                "CPU yarış araçlarına karşı 3 şeritli otoyolda ⚡ nitro kullanarak bitiş çizgisine ulaş, seviye atla!",
+                0xFFDC2626, false, false, 3));
+        games.add(new GameDefinition(2, "❌⭕ X-O-X Zeka Düellosu (CPU)",
+                "Yapay zeka CPU'ya karşı 3x3 ve 4x4 strateji tahtasında yarış, geçtiğin seviyeler hafızada kalsın!",
+                0xFF0284C7, false, false, 4));
+        games.add(new GameDefinition(3, "🏁 Dama Şampiyonası (CPU)",
+                "CPU'ya karşı 8x8 tahtada taş ye, 👑 Dama yap ve seviye atladıkça ustalaşan CPU'yu yen!",
+                0xFFD97706, false, false, 5));
 
         games.add(new GameDefinition(0, "🚀 Galaksi Sayı Avcısı",
                 grade + ". Sınıf uzay gemisiyle kolaydan zora hedefleri vur ve meteorları parçala!", 0xFF1E88E5, false));
@@ -861,10 +970,13 @@ public class EntertainmentActivity extends Activity {
     }
 
     private int getCurrentDifficultyTier() {
-        if (questionsSolvedInSession < 3) return 1; // 1..3. sorular: Seviye 1 (Çok Kolay Isınma)
-        if (questionsSolvedInSession < 7) return 2; // 4..7. sorular: Seviye 2 (Gelişim)
-        if (questionsSolvedInSession < 12) return 3; // 8..12. sorular: Seviye 3 (Uzman)
-        return 4; // 13+ sorular: Seviye 4 (Şampiyonlar Ligi)
+        int savedBase = StudyDatabaseHelper.getSavedGameLevel(this, "quiz_level_" + (activeGameIndex % 8), 1);
+        int sessionBonus = (questionsSolvedInSession >= 9) ? 3 : (questionsSolvedInSession >= 5 ? 2 : (questionsSolvedInSession >= 2 ? 1 : 0));
+        int tier = Math.min(4, Math.max(1, savedBase + sessionBonus));
+        if (tier > savedBase) {
+            StudyDatabaseHelper.saveGameLevel(this, "quiz_level_" + (activeGameIndex % 8), tier);
+        }
+        return tier;
     }
 
     private void startSelectedGame(GameDefinition game) {
@@ -886,27 +998,33 @@ public class EntertainmentActivity extends Activity {
         musicSynth.setMelodyIndex(game.index);
         layoutGameLobbyContainer.setVisibility(View.GONE);
 
-        if (game.isPlatformerJump) {
+        if (game.specialGameMode > 0) {
             layoutActiveGameArena.setVisibility(View.GONE);
             layoutPlatformerJumpArena.setVisibility(View.VISIBLE);
             setFullScreenJumpMode(true);
-            if (puzzleTowerView != null) {
-                puzzleTowerView.stopGame();
-                puzzleTowerView.setVisibility(View.GONE);
+            if (jumpGameView != null) { jumpGameView.stopGame(); jumpGameView.setVisibility(View.GONE); }
+            if (puzzleTowerView != null) { puzzleTowerView.stopGame(); puzzleTowerView.setVisibility(View.GONE); }
+            if (carRacingView != null) { carRacingView.stopGame(); carRacingView.setVisibility(View.GONE); }
+            if (xoxBoardView != null) { xoxBoardView.stopGame(); xoxBoardView.setVisibility(View.GONE); }
+            if (checkersBoardView != null) { checkersBoardView.stopGame(); checkersBoardView.setVisibility(View.GONE); }
+
+            if (game.specialGameMode == 1 && jumpGameView != null) {
+                jumpGameView.setVisibility(View.VISIBLE);
+                jumpGameView.resetGame();
+                jumpGameView.startGame();
+            } else if (game.specialGameMode == 2 && puzzleTowerView != null) {
+                puzzleTowerView.setVisibility(View.VISIBLE);
+                puzzleTowerView.startGame();
+            } else if (game.specialGameMode == 3 && carRacingView != null) {
+                carRacingView.setVisibility(View.VISIBLE);
+                carRacingView.startGame();
+            } else if (game.specialGameMode == 4 && xoxBoardView != null) {
+                xoxBoardView.setVisibility(View.VISIBLE);
+                xoxBoardView.startGame();
+            } else if (game.specialGameMode == 5 && checkersBoardView != null) {
+                checkersBoardView.setVisibility(View.VISIBLE);
+                checkersBoardView.startGame();
             }
-            jumpGameView.setVisibility(View.VISIBLE);
-            jumpGameView.resetGame();
-            jumpGameView.startGame();
-        } else if (game.isPuzzleTower) {
-            layoutActiveGameArena.setVisibility(View.GONE);
-            layoutPlatformerJumpArena.setVisibility(View.VISIBLE);
-            setFullScreenJumpMode(true);
-            if (jumpGameView != null) {
-                jumpGameView.stopGame();
-                jumpGameView.setVisibility(View.GONE);
-            }
-            puzzleTowerView.setVisibility(View.VISIBLE);
-            puzzleTowerView.startGame();
         } else {
             setFullScreenJumpMode(false);
             layoutPlatformerJumpArena.setVisibility(View.GONE);

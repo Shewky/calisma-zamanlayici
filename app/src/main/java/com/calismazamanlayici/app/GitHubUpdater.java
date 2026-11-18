@@ -372,6 +372,7 @@ public class GitHubUpdater {
                 Toast.makeText(activity, "Güncellemeyi kurabilmek için '\''Bilinmeyen Uygulamaları Yükle'\'' iznini açın.", Toast.LENGTH_LONG).show();
                 Intent permIntent = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
                         Uri.parse("package:" + activity.getPackageName()));
+                TimerForegroundService.setSystemExemptLaunch(true);
                 activity.startActivity(permIntent);
                 return;
             }
@@ -509,6 +510,7 @@ public class GitHubUpdater {
             Toast.makeText(activity, "📥 Güncelleme paketi tarayıcı üzerinden indiriliyor...", Toast.LENGTH_LONG).show();
             Intent browserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(apkUrl));
             browserIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            TimerForegroundService.setSystemExemptLaunch(true);
             activity.startActivity(browserIntent);
         } catch (Exception e) {
             Toast.makeText(activity, "İndirme başlatılamadı: " + e.getMessage(), Toast.LENGTH_LONG).show();
@@ -526,6 +528,7 @@ public class GitHubUpdater {
         }
         intent.setDataAndType(apkUri, "application/vnd.android.package-archive");
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        TimerForegroundService.setSystemExemptLaunch(true);
         activity.startActivity(intent);
     }
 }

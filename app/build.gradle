@@ -3,7 +3,7 @@ plugins {
 }
 
 def ciRunNumber = project.hasProperty('versionCode') ? project.property('versionCode').toInteger() : 1
-def ciVersionName = project.hasProperty('versionName') ? project.property('versionName').toString() : "4.0.32"
+def ciVersionName = project.hasProperty('versionName') ? project.property('versionName').toString() : "4.1.0"
 def ciGithubRepo = project.hasProperty('githubRepo') ? project.property('githubRepo').toString() : "kullanici/calisma-zamanlayici"
 
 android {
