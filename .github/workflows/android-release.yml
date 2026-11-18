@@ -22,6 +22,14 @@ jobs:
           find app/keystore -type f ! -name 'release-key.jks' -delete || true
           find app/src/main/res/drawable -name 'ic_launcher_*.xml' -delete || true
 
+      - name: Sürüm Numarasını Hesapla (v4.1.0 Başlangıçlı)
+        id: ver
+        run: |
+          BASE_RUN=34
+          PATCH=$(( ${{ github.run_number }} - BASE_RUN ))
+          if [ "$PATCH" -lt 0 ]; then PATCH=0; fi
+          echo "version_name=4.1.${PATCH}" >> $GITHUB_OUTPUT
+
       - name: JDK 17 Kurulumu
         uses: actions/setup-java@v4
         with:
@@ -48,20 +56,20 @@ jobs:
           if [ -x /tmp/gradle-8.5/bin/gradle ]; then
             /tmp/gradle-8.5/bin/gradle assembleRelease --no-daemon \
               -PversionCode=${{ github.run_number }} \
-              -PversionName=4.0.${{ github.run_number }} \
+              -PversionName=${{ steps.ver.outputs.version_name }} \
               -PgithubRepo=${{ github.repository }}
           else
             sed -i "s/8.2.2/8.8.0/g" build.gradle
             gradle assembleRelease --no-daemon \
               -PversionCode=${{ github.run_number }} \
-              -PversionName=4.0.${{ github.run_number }} \
+              -PversionName=${{ steps.ver.outputs.version_name }} \
               -PgithubRepo=${{ github.repository }}
           fi
 
       - name: APK Dosyalarını GitHub Actions Arşivine Yükle
         uses: actions/upload-artifact@v4
         with:
-          name: CalismaZamanlayici-APKs-v4.0.${{ github.run_number }}
+          name: CalismaZamanlayici-APKs-v${{ steps.ver.outputs.version_name }}
           path: |
             app/build/outputs/apk/release/CalismaZamanlayici.apk
             veli/build/outputs/apk/release/CalismaZamanlayiciVeli.apk
@@ -69,8 +77,8 @@ jobs:
       - name: GitHub Releases Üzerinde Her İki APK Sürümünü Yayınla
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v4.0.${{ github.run_number }}
-          name: "Çalışma Zamanlayıcı & Veli Uygulaması v4.0.${{ github.run_number }}"
+          tag_name: v${{ steps.ver.outputs.version_name }}
+          name: "Çalışma Zamanlayıcı & Veli Uygulaması v${{ steps.ver.outputs.version_name }}"
           body_path: RELEASE_NOTES.md
           files: |
             app/build/outputs/apk/release/CalismaZamanlayici.apk
