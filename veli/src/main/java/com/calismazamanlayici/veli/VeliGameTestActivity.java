@@ -515,7 +515,33 @@ public class VeliGameTestActivity extends Activity {
             }
 
             @Override
+            public void onSpeedChanged(float speedRatio, int level, boolean active) {
+                musicSynth.setRacingTelemetry(active, speedRatio, level);
+            }
+
+            @Override
+            public void onNitroBoost() {
+                musicSynth.playNitroBoostEffect();
+            }
+
+            @Override
+            public void onLaneSwitch() {
+                musicSynth.playLaneSwitchEffect();
+            }
+
+            @Override
+            public void onCrashSound() {
+                musicSynth.playCrashEffect();
+            }
+
+            @Override
+            public void onOvertakeSound() {
+                musicSynth.playOvertakeEffect();
+            }
+
+            @Override
             public void onExitRequested() {
+                musicSynth.setRacingTelemetry(false, 0f, 1);
                 if (carRacingView != null) carRacingView.stopGame();
                 saveActiveGameSessionToCalendarIfNeeded();
                 showLobbyScreen();
@@ -835,6 +861,7 @@ public class VeliGameTestActivity extends Activity {
         if (xoxBoardView != null) xoxBoardView.stopGame();
         if (checkersBoardView != null) checkersBoardView.stopGame();
         if (starEffectView != null) starEffectView.setSceneState(activeGameIndex, questionsSolvedInSession, getCurrentDifficultyTier(), false);
+        musicSynth.setRacingTelemetry(false, 0f, 1);
         musicSynth.stopBackgroundMusic();
         saveActiveGameSessionToCalendarIfNeeded();
         super.onPause();
@@ -1004,6 +1031,7 @@ public class VeliGameTestActivity extends Activity {
                 puzzleTowerView.setVisibility(View.VISIBLE);
                 puzzleTowerView.startGame();
             } else if (game.specialGameMode == 3 && carRacingView != null) {
+                musicSynth.setMelodyIndex(9);
                 carRacingView.setVisibility(View.VISIBLE);
                 carRacingView.startGame();
             } else if (game.specialGameMode == 4 && xoxBoardView != null) {

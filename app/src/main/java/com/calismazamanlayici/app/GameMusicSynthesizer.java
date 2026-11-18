@@ -20,6 +20,10 @@ public class GameMusicSynthesizer {
     private volatile boolean playing = false;
     private volatile boolean muted = false;
     private volatile int currentMelodyIndex = 0;
+    private volatile boolean racingAudioActive = false;
+    private volatile float racingSpeedRatio = 0f;
+    private volatile int racingLevel = 1;
+    private double enginePhase = 0.0;
     private Thread musicThread;
     private AudioTrack bgTrack;
 
@@ -182,12 +186,18 @@ public class GameMusicSynthesizer {
                 {349, 0, 340, 340}, {294, 0, 340, 340}, {262, 0, 420, 650}, {0, 0, 0, 700}
             },
             // 8: Süper Yıldız Zıplama Macerası (Oyun Havasına Uygun, Hafif Ahşap Marimba & Ritim Tıkırtısı!)
-            // Enstrümantal konser gibi DEĞİL; hafif, eğlenceli, zıplama ritmine uygun arcade dokunuşları!
             {
                 {330, 180, 190, 220}, {0, 260, 120, 160}, {392, 180, 190, 220}, {440, 260, 210, 260},
                 {0, 180, 120, 220},   {392, 260, 190, 220}, {330, 180, 220, 300}, {0, 0, 0, 320},
                 {294, 180, 190, 220}, {330, 260, 190, 220}, {392, 180, 210, 260}, {0, 260, 120, 220},
                 {330, 180, 190, 220}, {294, 260, 190, 220}, {262, 180, 240, 340}, {0, 0, 0, 420}
+            },
+            // 9: Süper Turbo Araba Yarışı (Tempolu Aksiyon & Yarış Ritmi - Hızlandıkça hızlanır!)
+            {
+                {220, 150, 150, 155}, {262, 240, 130, 155}, {330, 150, 150, 155}, {392, 280, 140, 155},
+                {440, 150, 160, 155}, {392, 240, 130, 155}, {330, 150, 150, 155}, {294, 280, 140, 155},
+                {262, 150, 150, 155}, {330, 240, 130, 155}, {392, 150, 150, 155}, {494, 280, 150, 155},
+                {523, 150, 170, 155}, {440, 240, 140, 155}, {392, 150, 150, 155}, {330, 280, 150, 155}
             }
     };
 
@@ -200,7 +210,8 @@ public class GameMusicSynthesizer {
             INST_SOFT_PIANO,       // 5
             INST_PIZZICATO_STRING, // 6
             INST_SOFT_KALIMBA,     // 7
-            INST_WOOD_MARIMBA      // 8: Parkur oyunu için kısa, hafif, neşeli ahşap marimba + ritim!
+            INST_WOOD_MARIMBA,     // 8: Parkur oyunu için kısa, hafif, neşeli ahşap marimba + ritim!
+            INST_PIZZICATO_STRING  // 9: Araba yarışı için dinamik, enerjik aksiyon ritmi!
     };
 
     public synchronized void startBackgroundMusic(int melodyIndex) {
@@ -219,6 +230,12 @@ public class GameMusicSynthesizer {
 
     public void setMelodyIndex(int melodyIndex) {
         this.currentMelodyIndex = Math.abs(melodyIndex) % SCORES.length;
+    }
+
+    public void setRacingTelemetry(boolean active, float speedRatio, int level) {
+        this.racingAudioActive = active;
+        this.racingSpeedRatio = Math.max(0f, Math.min(1.5f, speedRatio));
+        this.racingLevel = Math.max(1, level);
     }
 
     public boolean toggleMute() {
@@ -307,8 +324,13 @@ public class GameMusicSynthesizer {
                 int[] ev = score[step % score.length];
                 int melFreq = ev[0];
                 int percFreq = ev[1];
-                int sustainMs = Math.max(120, ev[2]);
-                int stepMs = Math.max(120, ev[3]);
+                int sustainMs = Math.max(100, ev[2]);
+                int stepMs = Math.max(70, ev[3]);
+                if (racingAudioActive && idx == 9) {
+                    float tempoFactor = Math.max(0.45f, 1.0f - (racingLevel - 1) * 0.045f - racingSpeedRatio * 0.30f);
+                    stepMs = Math.max(68, Math.round(stepMs * tempoFactor));
+                    sustainMs = Math.max(90, Math.round(sustainMs * Math.max(0.65f, tempoFactor)));
+                }
                 step++;
 
                 int inst = GAME_INSTRUMENTS[idx];
@@ -334,6 +356,20 @@ public class GameMusicSynthesizer {
                             if (voices[v].active) {
                                 mix += voices[v].nextSample();
                             }
+                        }
+                        if (racingAudioActive && racingSpeedRatio > 0.02f) {
+                            double engFreq = 148.0 + racingSpeedRatio * 185.0 + Math.min(60.0, (racingLevel - 1) * 6.0);
+                            enginePhase += (2.0 * Math.PI * engFreq) / SAMPLE_RATE;
+                            if (enginePhase > 2.0 * Math.PI * 100.0) {
+                                enginePhase -= 2.0 * Math.PI * 100.0;
+                            }
+                            double pulse = 0.82 + 0.18 * Math.sin(enginePhase * 0.25);
+                            double engWave = (Math.sin(enginePhase) * 0.42
+                                    + Math.sin(enginePhase * 2.0) * 0.30
+                                    + Math.sin(enginePhase * 3.0) * 0.18
+                                    + Math.sin(enginePhase * 4.0) * 0.10) * pulse;
+                            float engVol = 0.13f + Math.min(0.14f, racingSpeedRatio * 0.11f);
+                            mix += (float) (engWave * engVol);
                         }
                         int pcm = (int) (mix * 4800.0f);
                         if (pcm > 14000) pcm = 14000;
@@ -435,6 +471,106 @@ public class GameMusicSynthesizer {
                     Thread.sleep(durationMs + 35L);
                     sfx.stop();
                     sfx.release();
+                } catch (Exception ignored) {
+                }
+            }
+        }).start();
+    }
+
+    public void playLaneSwitchEffect() {
+        if (muted) return;
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    int samples = (SAMPLE_RATE * 110) / 1000;
+                    short[] buf = new short[samples];
+                    Random rng = new Random();
+                    double phase = 0.0;
+                    for (int i = 0; i < samples; i++) {
+                        double t = (double) i / samples;
+                        double freq = 520.0 + Math.sin(t * Math.PI) * 320.0;
+                        phase += (2.0 * Math.PI * freq) / SAMPLE_RATE;
+                        double env = Math.sin(Math.PI * t) * (1.0 - t * 0.4);
+                        double chirp = Math.sin(phase) * 0.55 + (rng.nextFloat() * 2f - 1f) * 0.35;
+                        buf[i] = (short) (chirp * env * 9500);
+                    }
+                    playOneShotPcm(buf);
+                } catch (Exception ignored) {
+                }
+            }
+        }).start();
+    }
+
+    public void playCrashEffect() {
+        if (muted) return;
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    int samples = (SAMPLE_RATE * 340) / 1000;
+                    short[] buf = new short[samples];
+                    Random rng = new Random();
+                    double phase = 0.0;
+                    float lp = 0f;
+                    for (int i = 0; i < samples; i++) {
+                        double t = (double) i / samples;
+                        double freq = 190.0 * (1.0 - t * 0.65);
+                        phase += (2.0 * Math.PI * freq) / SAMPLE_RATE;
+                        float noise = rng.nextFloat() * 2f - 1f;
+                        lp = lp * 0.65f + noise * 0.35f;
+                        double env = Math.exp(-4.5 * t);
+                        double impact = Math.sin(phase) * 0.45 + lp * 0.85;
+                        buf[i] = (short) (Math.max(-1.0, Math.min(1.0, impact)) * env * 14500);
+                    }
+                    playOneShotPcm(buf);
+                } catch (Exception ignored) {
+                }
+            }
+        }).start();
+    }
+
+    public void playOvertakeEffect() {
+        if (muted) return;
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    int samples = (SAMPLE_RATE * 140) / 1000;
+                    short[] buf = new short[samples];
+                    double phase = 0.0;
+                    for (int i = 0; i < samples; i++) {
+                        double t = (double) i / samples;
+                        double freq = 420.0 - t * 240.0;
+                        phase += (2.0 * Math.PI * freq) / SAMPLE_RATE;
+                        double env = Math.sin(Math.PI * t);
+                        buf[i] = (short) (Math.sin(phase) * env * 6500);
+                    }
+                    playOneShotPcm(buf);
+                } catch (Exception ignored) {
+                }
+            }
+        }).start();
+    }
+
+    public void playNitroBoostEffect() {
+        if (muted) return;
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    int samples = (SAMPLE_RATE * 260) / 1000;
+                    short[] buf = new short[samples];
+                    double phase = 0.0;
+                    for (int i = 0; i < samples; i++) {
+                        double t = (double) i / samples;
+                        double freq = 220.0 + t * 560.0;
+                        phase += (2.0 * Math.PI * freq) / SAMPLE_RATE;
+                        double env = Math.sin(Math.PI * t) * (1.0 - t * 0.35);
+                        double wave = Math.sin(phase) * 0.65 + Math.sin(phase * 2.0) * 0.35;
+                        buf[i] = (short) (wave * env * 10500);
+                    }
+                    playOneShotPcm(buf);
                 } catch (Exception ignored) {
                 }
             }

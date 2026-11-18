@@ -2,7 +2,10 @@ package com.calismazamanlayici.veli;
 
 import android.content.Context;
 import android.graphics.Canvas;
+import android.graphics.LinearGradient;
 import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.Shader;
 import android.graphics.RectF;
 import android.os.SystemClock;
 import android.util.DisplayMetrics;
@@ -27,6 +30,11 @@ public class VeliCarRacingView extends View {
         void onRaceSound(boolean positive);
         void onCountdownTick(boolean isGo);
         void onExitRequested();
+        void onSpeedChanged(float speedRatio, int level, boolean active);
+        void onNitroBoost();
+        void onLaneSwitch();
+        void onCrashSound();
+        void onOvertakeSound();
     }
 
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -53,6 +61,7 @@ public class VeliCarRacingView extends View {
     private int nitroFuel = 3;
     private int nitroActiveFrames = 0;
     private int invulnerableFrames = 0;
+    private float animTick = 0f;
 
     private int playerLane = 1; // 0: Sol, 1: Orta, 2: Sağ
     private float playerVisualX = 0f;
@@ -68,6 +77,7 @@ public class VeliCarRacingView extends View {
         int color;
         String icon;
         boolean canSwitchLane;
+        int style;
     }
 
     private static class RoadPick {
@@ -144,6 +154,7 @@ public class VeliCarRacingView extends View {
 
     public void stopGame() {
         running = false;
+        if (listener != null) listener.onSpeedChanged(0f, level, false);
         removeCallbacks(loopRunnable);
         frameScheduled = false;
     }
@@ -241,40 +252,31 @@ public class VeliCarRacingView extends View {
             canvas.drawText(ic, px, rp.y + 6f * dp, paint);
         }
 
-        // CPU Rakip Araçlar
-        for (CpuCar c : cpuCars) {
-            paint.setColor(c.color);
-            RectF cr = new RectF(c.x - 24f * dp, c.y - 38f * dp, c.x + 24f * dp, c.y + 38f * dp);
-            canvas.drawRoundRect(cr, 10f * dp, 10f * dp, paint);
-            paint.setColor(0xFF0F172A);
-            canvas.drawRoundRect(new RectF(c.x - 18f * dp, c.y - 18f * dp, c.x + 18f * dp, c.y + 12f * dp), 6f * dp, 6f * dp, paint);
-            paint.setColor(0xFFFFFFFF);
-            paint.setTextSize(20f * sp);
-            paint.setTextAlign(Paint.Align.CENTER);
-            canvas.drawText(c.icon, c.x, c.y + 8f * dp, paint);
+        // Nitro Hız Çizgileri (Yüksek hız efekti)
+        if (!inCountdown && running && nitroActiveFrames > 0) {
+            paint.setColor(0x55FFFFFF);
+            paint.setStrokeWidth(2.5f * dp);
+            for (int sl = 0; sl < 6; sl++) {
+                float sx = roadLeft + (sl + 0.5f) * (roadW / 6f);
+                float sy = hudH + ((roadScrollOffset * 2.2f + sl * 130f * dp) % (h - hudH));
+                canvas.drawLine(sx, sy, sx, sy + 48f * dp, paint);
+            }
         }
 
-        // Oyuncu Yarış Arabası
+        // CPU Rakip Araçlar (Gerçekçi vektör çizimli araçlar)
+        for (CpuCar c : cpuCars) {
+            drawRealisticCar(canvas, c.x, c.y, 46f * dp, 84f * dp, c.color, 0xFF0F172A, c.style, false, false);
+        }
+
+        // Oyuncu Yarış Arabası (Gerçekçi süper spor araba)
         float targetPlayerX = roadLeft + (playerLane + 0.5f) * laneW;
         if (playerVisualX == 0f) playerVisualX = targetPlayerX;
         playerVisualX += (targetPlayerX - playerVisualX) * 0.28f;
         float playerY = h - 145f * dp;
 
         if (invulnerableFrames % 4 < 2) {
-            if (nitroActiveFrames > 0) {
-                paint.setColor(0xFFFF6D00);
-                canvas.drawCircle(playerVisualX, playerY + 44f * dp, 14f * dp, paint);
-                paint.setColor(0xFFFFD600);
-                canvas.drawCircle(playerVisualX, playerY + 48f * dp, 8f * dp, paint);
-            }
-            paint.setColor(0xFFEF4444);
-            RectF pr = new RectF(playerVisualX - 26f * dp, playerY - 40f * dp, playerVisualX + 26f * dp, playerY + 40f * dp);
-            canvas.drawRoundRect(pr, 12f * dp, 12f * dp, paint);
-            paint.setColor(0xFFFFFFFF);
-            canvas.drawRect(playerVisualX - 5f * dp, playerY - 38f * dp, playerVisualX + 5f * dp, playerY + 38f * dp, paint);
-            paint.setTextSize(22f * sp);
-            paint.setTextAlign(Paint.Align.CENTER);
-            canvas.drawText("🏎️", playerVisualX, playerY + 8f * dp, paint);
+            drawRealisticCar(canvas, playerVisualX, playerY, 50f * dp, 90f * dp,
+                    nitroActiveFrames > 0 ? 0xFFEA580C : 0xFFDC2626, 0xFFF8FAFC, 99, true, nitroActiveFrames > 0);
         }
 
         // Alt Kontrol Butonları (⬅️ SOL ŞERİT | ⚡ NİTRO | ➡️ SAĞ ŞERİT)
@@ -351,6 +353,236 @@ public class VeliCarRacingView extends View {
         canvas.drawText("⭐ " + score, w - 10f * dp, 48f * dp, paint);
     }
 
+    private void drawRealisticCar(Canvas canvas, float cx, float cy, float carW, float carH,
+                                  int bodyColor, int stripeColor, int style, boolean isPlayer, boolean nitroOn) {
+        float hw = carW * 0.5f;
+        float hh = carH * 0.5f;
+
+        // 1. Yumuşak asfalt gölgesi
+        paint.setShader(null);
+        paint.setColor(0x70000000);
+        Path shadowPath = new Path();
+        shadowPath.moveTo(cx - hw * 0.72f + 4f * dp, cy - hh + 5f * dp);
+        shadowPath.lineTo(cx + hw * 0.72f + 4f * dp, cy - hh + 5f * dp);
+        shadowPath.quadTo(cx + hw * 1.08f + 4f * dp, cy, cx + hw * 0.96f + 4f * dp, cy + hh + 5f * dp);
+        shadowPath.lineTo(cx - hw * 0.96f + 4f * dp, cy + hh + 5f * dp);
+        shadowPath.quadTo(cx - hw * 1.08f + 4f * dp, cy, cx - hw * 0.72f + 4f * dp, cy - hh + 5f * dp);
+        shadowPath.close();
+        canvas.drawPath(shadowPath, paint);
+
+        // 2. 4 adet çıkıntılı lastik ve gümüş jant detayı
+        float wheelW = 6.5f * dp;
+        float wheelH = 17f * dp;
+        float[][] wheelPos = new float[][]{
+                {cx - hw - 2.5f * dp, cy - hh + 12f * dp},
+                {cx + hw - wheelW + 2.5f * dp, cy - hh + 12f * dp},
+                {cx - hw - 2.5f * dp, cy + hh - 28f * dp},
+                {cx + hw - wheelW + 2.5f * dp, cy + hh - 28f * dp}
+        };
+        for (float[] wp : wheelPos) {
+            paint.setColor(0xFF0A0E17);
+            canvas.drawRoundRect(new RectF(wp[0], wp[1], wp[0] + wheelW, wp[1] + wheelH), 3f * dp, 3f * dp, paint);
+            paint.setColor(0xFF94A3B8);
+            canvas.drawRect(wp[0] + 1.5f * dp, wp[1] + 4f * dp, wp[0] + wheelW - 1.5f * dp, wp[1] + wheelH - 4f * dp, paint);
+        }
+
+        if (isPlayer) {
+            // Nitro egzoz alevi (çift egzozdan mavi-sarı alev)
+            if (nitroOn) {
+                float flameLen = (24f + (float) Math.abs(Math.sin(animTick * 2.2f)) * 20f) * dp;
+                paint.setColor(0xFF38BDF8);
+                canvas.drawOval(new RectF(cx - 13f * dp, cy + hh - 2f * dp, cx - 3f * dp, cy + hh + flameLen), paint);
+                canvas.drawOval(new RectF(cx + 3f * dp, cy + hh - 2f * dp, cx + 13f * dp, cy + hh + flameLen), paint);
+                paint.setColor(0xFFFACC15);
+                canvas.drawOval(new RectF(cx - 10f * dp, cy + hh, cx - 6f * dp, cy + hh + flameLen * 0.65f), paint);
+                canvas.drawOval(new RectF(cx + 6f * dp, cy + hh, cx + 10f * dp, cy + hh + flameLen * 0.65f), paint);
+            }
+
+            // İleri far ışık konileri
+            paint.setColor(0x28FEF08A);
+            Path leftBeam = new Path();
+            leftBeam.moveTo(cx - hw * 0.62f, cy - hh + 4f * dp);
+            leftBeam.lineTo(cx - hw * 1.15f, cy - hh - 58f * dp);
+            leftBeam.lineTo(cx - hw * 0.15f, cy - hh - 58f * dp);
+            leftBeam.close();
+            canvas.drawPath(leftBeam, paint);
+
+            Path rightBeam = new Path();
+            rightBeam.moveTo(cx + hw * 0.62f, cy - hh + 4f * dp);
+            rightBeam.lineTo(cx + hw * 0.15f, cy - hh - 58f * dp);
+            rightBeam.lineTo(cx + hw * 1.15f, cy - hh - 58f * dp);
+            rightBeam.close();
+            canvas.drawPath(rightBeam, paint);
+
+            // Aerodinamik süper spor araba gövdesi (Sivri burun + çamurluk çıkıntıları + arka difüzör)
+            Path body = new Path();
+            body.moveTo(cx, cy - hh - 2f * dp); // Sivri burun ucu
+            body.quadTo(cx + hw * 0.72f, cy - hh + 4f * dp, cx + hw * 0.92f, cy - hh * 0.45f);
+            body.quadTo(cx + hw * 1.05f, cy - hh * 0.15f, cx + hw * 0.86f, cy + hh * 0.12f); // Bel kıvrımı
+            body.quadTo(cx + hw * 1.04f, cy + hh * 0.55f, cx + hw * 0.94f, cy + hh - 6f * dp); // Arka çamurluk
+            body.lineTo(cx + hw * 0.68f, cy + hh);
+            body.lineTo(cx - hw * 0.68f, cy + hh);
+            body.lineTo(cx - hw * 0.94f, cy + hh - 6f * dp);
+            body.quadTo(cx - hw * 1.04f, cy + hh * 0.55f, cx - hw * 0.86f, cy + hh * 0.12f);
+            body.quadTo(cx - hw * 1.05f, cy - hh * 0.15f, cx - hw * 0.92f, cy - hh * 0.45f);
+            body.quadTo(cx - hw * 0.72f, cy - hh + 4f * dp, cx, cy - hh - 2f * dp);
+            body.close();
+
+            int lightBody = nitroOn ? 0xFFFB923C : 0xFFF87171;
+            int darkBody = nitroOn ? 0xFFC2410C : 0xFF991B1B;
+            paint.setShader(new LinearGradient(cx - hw, cy, cx + hw, cy,
+                    new int[]{darkBody, lightBody, bodyColor, darkBody}, null, Shader.TileMode.CLAMP));
+            canvas.drawPath(body, paint);
+            paint.setShader(null);
+
+            // Yan aynalar
+            paint.setColor(darkBody);
+            canvas.drawOval(new RectF(cx - hw - 4f * dp, cy - hh * 0.24f, cx - hw * 0.76f, cy - hh * 0.08f), paint);
+            canvas.drawOval(new RectF(cx + hw * 0.76f, cy - hh * 0.24f, cx + hw + 4f * dp, cy - hh * 0.08f), paint);
+
+            // Çift yarış şeridi (kaput ve tavan boyunca)
+            paint.setColor(stripeColor);
+            canvas.drawRect(cx - 4.5f * dp, cy - hh + 7f * dp, cx - 1.2f * dp, cy + hh - 10f * dp, paint);
+            canvas.drawRect(cx + 1.2f * dp, cy - hh + 7f * dp, cx + 4.5f * dp, cy + hh - 10f * dp, paint);
+
+            // Kaput hava girişi
+            paint.setColor(0xFF1E293B);
+            Path scoop = new Path();
+            scoop.moveTo(cx - 6f * dp, cy - hh * 0.62f);
+            scoop.lineTo(cx + 6f * dp, cy - hh * 0.62f);
+            scoop.lineTo(cx + 4f * dp, cy - hh * 0.44f);
+            scoop.lineTo(cx - 4f * dp, cy - hh * 0.44f);
+            scoop.close();
+            canvas.drawPath(scoop, paint);
+
+            // Ön & arka eğimli kokpit camı
+            Path glass = new Path();
+            glass.moveTo(cx - hw * 0.56f, cy - hh * 0.36f);
+            glass.quadTo(cx, cy - hh * 0.50f, cx + hw * 0.56f, cy - hh * 0.36f);
+            glass.lineTo(cx + hw * 0.48f, cy + hh * 0.44f);
+            glass.lineTo(cx - hw * 0.48f, cy + hh * 0.44f);
+            glass.close();
+            paint.setShader(new LinearGradient(cx, cy - hh * 0.45f, cx, cy + hh * 0.44f,
+                    0xFF38BDF8, 0xFF0F172A, Shader.TileMode.CLAMP));
+            canvas.drawPath(glass, paint);
+            paint.setShader(null);
+
+            // Tavan kabini
+            paint.setColor(bodyColor);
+            Path roof = new Path();
+            roof.moveTo(cx - hw * 0.38f, cy - hh * 0.10f);
+            roof.lineTo(cx + hw * 0.38f, cy - hh * 0.10f);
+            roof.lineTo(cx + hw * 0.34f, cy + hh * 0.24f);
+            roof.lineTo(cx - hw * 0.34f, cy + hh * 0.24f);
+            roof.close();
+            canvas.drawPath(roof, paint);
+
+            // Karbon arka GT rüzgarlık (spoiler)
+            paint.setColor(0xFF0F172A);
+            Path wing = new Path();
+            wing.moveTo(cx - hw - 2f * dp, cy + hh - 10f * dp);
+            wing.lineTo(cx + hw + 2f * dp, cy + hh - 10f * dp);
+            wing.lineTo(cx + hw - 2f * dp, cy + hh - 2f * dp);
+            wing.lineTo(cx - hw + 2f * dp, cy + hh - 2f * dp);
+            wing.close();
+            canvas.drawPath(wing, paint);
+
+            // LED Ön farlar & Arka stop barı
+            paint.setColor(0xFFFEF08A);
+            canvas.drawOval(new RectF(cx - hw * 0.72f, cy - hh + 6f * dp, cx - hw * 0.36f, cy - hh + 13f * dp), paint);
+            canvas.drawOval(new RectF(cx + hw * 0.36f, cy - hh + 6f * dp, cx + hw * 0.72f, cy - hh + 13f * dp), paint);
+            paint.setColor(0xFFFF1744);
+            canvas.drawRect(cx - hw * 0.74f, cy + hh - 3f * dp, cx - hw * 0.26f, cy + hh, paint);
+            canvas.drawRect(cx + hw * 0.26f, cy + hh - 3f * dp, cx + hw * 0.74f, cy + hh, paint);
+        } else if (style == 3) {
+            // Ağır Kamyon (Aerodinamik Kabin + Metalik Römork)
+            paint.setShader(new LinearGradient(cx - hw, cy, cx + hw, cy,
+                    new int[]{0xFFCBD5E1, 0xFFF8FAFC, 0xFF94A3B8}, null, Shader.TileMode.CLAMP));
+            canvas.drawRoundRect(new RectF(cx - hw * 0.95f, cy - hh, cx + hw * 0.95f, cy + hh * 0.32f), 5f * dp, 5f * dp, paint);
+            paint.setShader(null);
+            paint.setColor(0xFF94A3B8);
+            for (int r = -2; r <= 2; r++) {
+                canvas.drawLine(cx - hw * 0.85f, cy - hh * 0.32f + r * 10f * dp, cx + hw * 0.85f, cy - hh * 0.32f + r * 10f * dp, paint);
+            }
+            // Kabin
+            Path cab = new Path();
+            cab.moveTo(cx - hw * 0.88f, cy + hh * 0.34f);
+            cab.lineTo(cx + hw * 0.88f, cy + hh * 0.34f);
+            cab.lineTo(cx + hw * 0.76f, cy + hh);
+            cab.lineTo(cx - hw * 0.76f, cy + hh);
+            cab.close();
+            paint.setColor(bodyColor);
+            canvas.drawPath(cab, paint);
+            paint.setColor(0xFF0F172A);
+            canvas.drawRoundRect(new RectF(cx - hw * 0.65f, cy + hh * 0.56f, cx + hw * 0.65f, cy + hh * 0.84f), 4f * dp, 4f * dp, paint);
+            paint.setColor(0xFFFF1744);
+            canvas.drawRect(cx - hw * 0.72f, cy + hh - 3f * dp, cx - hw * 0.28f, cy + hh, paint);
+            canvas.drawRect(cx + hw * 0.28f, cy + hh - 3f * dp, cx + hw * 0.72f, cy + hh, paint);
+        } else {
+            // CPU Sedan / Polis / Taksi / GT Coupe (Aşağı yönlü sculpted silüet)
+            Path body = new Path();
+            body.moveTo(cx - hw * 0.76f, cy - hh);
+            body.lineTo(cx + hw * 0.76f, cy - hh);
+            body.quadTo(cx + hw * 1.02f, cy - hh * 0.40f, cx + hw * 0.88f, cy);
+            body.quadTo(cx + hw * 1.02f, cy + hh * 0.45f, cx + hw * 0.72f, cy + hh - 3f * dp);
+            body.quadTo(cx, cy + hh + 3f * dp, cx - hw * 0.72f, cy + hh - 3f * dp);
+            body.quadTo(cx - hw * 1.02f, cy + hh * 0.45f, cx - hw * 0.88f, cy);
+            body.quadTo(cx - hw * 1.02f, cy - hh * 0.40f, cx - hw * 0.76f, cy - hh);
+            body.close();
+
+            int edgeCol = (style == 0) ? 0xFF0F172A : ((bodyColor & 0x00FEFEFE) >> 1 | 0xFF000000);
+            paint.setShader(new LinearGradient(cx - hw, cy, cx + hw, cy,
+                    new int[]{edgeCol, bodyColor, edgeCol}, null, Shader.TileMode.CLAMP));
+            canvas.drawPath(body, paint);
+            paint.setShader(null);
+
+            if (style == 0) {
+                paint.setColor(0xFFF8FAFC);
+                canvas.drawRect(cx - hw * 0.86f, cy - hh * 0.28f, cx + hw * 0.86f, cy + hh * 0.28f, paint);
+            }
+
+            // Yan aynalar
+            paint.setColor(edgeCol);
+            canvas.drawOval(new RectF(cx - hw - 3.5f * dp, cy + hh * 0.05f, cx - hw * 0.78f, cy + hh * 0.20f), paint);
+            canvas.drawOval(new RectF(cx + hw * 0.78f, cy + hh * 0.05f, cx + hw + 3.5f * dp, cy + hh * 0.20f), paint);
+
+            // Camlar (trapezoid ön + arka cam)
+            Path glass = new Path();
+            glass.moveTo(cx - hw * 0.56f, cy - hh * 0.44f);
+            glass.lineTo(cx + hw * 0.56f, cy - hh * 0.44f);
+            glass.lineTo(cx + hw * 0.62f, cy + hh * 0.42f);
+            glass.quadTo(cx, cy + hh * 0.54f, cx - hw * 0.62f, cy + hh * 0.42f);
+            glass.close();
+            paint.setShader(new LinearGradient(cx, cy - hh * 0.44f, cx, cy + hh * 0.48f,
+                    0xFF1E293B, 0xFF334155, Shader.TileMode.CLAMP));
+            canvas.drawPath(glass, paint);
+            paint.setShader(null);
+
+            // Tavan
+            paint.setColor(style == 0 ? 0xFFF8FAFC : bodyColor);
+            canvas.drawRoundRect(new RectF(cx - hw * 0.42f, cy - hh * 0.22f, cx + hw * 0.42f, cy + hh * 0.14f), 4f * dp, 4f * dp, paint);
+
+            if (style == 0) {
+                boolean flash = ((int) animTick) % 2 == 0;
+                paint.setColor(flash ? 0xFFEF4444 : 0xFF3B82F6);
+                canvas.drawRoundRect(new RectF(cx - 11f * dp, cy - 4f * dp, cx, cy + 3f * dp), 2f * dp, 2f * dp, paint);
+                paint.setColor(flash ? 0xFF3B82F6 : 0xFFEF4444);
+                canvas.drawRoundRect(new RectF(cx, cy - 4f * dp, cx + 11f * dp, cy + 3f * dp), 2f * dp, 2f * dp, paint);
+            } else if (style == 1) {
+                paint.setColor(0xFFFEF08A);
+                canvas.drawRoundRect(new RectF(cx - 8f * dp, cy - 4f * dp, cx + 8f * dp, cy + 3f * dp), 2f * dp, 2f * dp, paint);
+            }
+
+            // Bize bakan arka stop lambaları (kırmızı) ve ön farlar (sarı)
+            paint.setColor(0xFFFF1744);
+            canvas.drawRect(cx - hw * 0.68f, cy - hh, cx - hw * 0.24f, cy - hh + 4f * dp, paint);
+            canvas.drawRect(cx + hw * 0.24f, cy - hh, cx + hw * 0.68f, cy - hh + 4f * dp, paint);
+            paint.setColor(0xFFFEF08A);
+            canvas.drawOval(new RectF(cx - hw * 0.68f, cy + hh - 8f * dp, cx - hw * 0.30f, cy + hh - 2f * dp), paint);
+            canvas.drawOval(new RectF(cx + hw * 0.30f, cy + hh - 8f * dp, cx + hw * 0.68f, cy + hh - 2f * dp), paint);
+        }
+    }
+
     private void drawCountdownOverlay(Canvas canvas, int w, int h, int step) {
         paint.setColor(0x990F172A);
         canvas.drawRect(0, 0, w, h, paint);
@@ -407,11 +639,14 @@ public class VeliCarRacingView extends View {
     }
 
     private void updateRacePhysics(int w, int h, float hudH, float roadLeft, float laneW) {
+        animTick += 0.25f;
         if (invulnerableFrames > 0) invulnerableFrames--;
         if (nitroActiveFrames > 0) nitroActiveFrames--;
 
         float baseSpeed = (4.8f + Math.min(5.5f, level * 0.42f)) * dp;
         float speed = (nitroActiveFrames > 0) ? (baseSpeed * 1.65f) : baseSpeed;
+        float speedRatio = Math.min(1.45f, ((speed / dp) - 3.5f) / 10.0f);
+        if (listener != null) listener.onSpeedChanged(speedRatio, level, true);
         roadScrollOffset += speed;
         raceDistance += (speed / dp) * 0.25f;
 
@@ -424,7 +659,10 @@ public class VeliCarRacingView extends View {
                 VeliStorage.saveGameLevel(getContext(), "car_race_high_score", highScore + 1);
             }
             levelCleared = true;
-            if (listener != null) listener.onRaceSound(true);
+            if (listener != null) {
+                listener.onSpeedChanged(0f, level, false);
+                listener.onRaceSound(true);
+            }
             return;
         }
 
@@ -445,6 +683,7 @@ public class VeliCarRacingView extends View {
             int pick = random.nextInt(cols.length);
             c.color = cols[pick];
             c.icon = ics[pick];
+            c.style = pick;
             c.canSwitchLane = (level >= 3 && random.nextInt(100) < (20 + level * 6));
             cpuCars.add(c);
         }
@@ -493,11 +732,12 @@ public class VeliCarRacingView extends View {
             if (Math.abs(c.x - playerVisualX) < 38f * dp && Math.abs(c.y - playerY) < 62f * dp && invulnerableFrames == 0) {
                 invulnerableFrames = 45;
                 lives--;
-                if (listener != null) listener.onRaceSound(false);
+                if (listener != null) listener.onCrashSound();
                 cIt.remove();
                 if (lives <= 0) {
                     lives = 0;
                     gameOver = true;
+                    if (listener != null) listener.onSpeedChanged(0f, level, false);
                 }
             } else if (c.y > h + 60f * dp) {
                 score += 10 + level * 2;
@@ -505,6 +745,7 @@ public class VeliCarRacingView extends View {
                     highScore = score;
                     VeliStorage.saveGameLevel(getContext(), "car_race_high_score", highScore + 1);
                 }
+                if (listener != null && random.nextInt(3) == 0) listener.onOvertakeSound();
                 cIt.remove();
             }
         }
@@ -538,12 +779,12 @@ public class VeliCarRacingView extends View {
             if (inCountdown) return true;
 
             if (btnLeftSteerRect.contains(tx, ty)) {
-                if (playerLane > 0) playerLane--;
+                if (playerLane > 0) { playerLane--; if (listener != null) listener.onLaneSwitch(); }
                 invalidate();
                 return true;
             }
             if (btnRightSteerRect.contains(tx, ty)) {
-                if (playerLane < 2) playerLane++;
+                if (playerLane < 2) { playerLane++; if (listener != null) listener.onLaneSwitch(); }
                 invalidate();
                 return true;
             }
@@ -551,7 +792,7 @@ public class VeliCarRacingView extends View {
                 if (nitroFuel > 0 && nitroActiveFrames == 0) {
                     nitroFuel--;
                     nitroActiveFrames = 75;
-                    if (listener != null) listener.onRaceSound(true);
+                    if (listener != null) listener.onNitroBoost();
                 }
                 invalidate();
                 return true;
@@ -559,9 +800,9 @@ public class VeliCarRacingView extends View {
 
             // Yola doğrudan dokunarak da sağ/sol şerit değiştirebilir
             if (tx < getWidth() * 0.5f) {
-                if (playerLane > 0) playerLane--;
+                if (playerLane > 0) { playerLane--; if (listener != null) listener.onLaneSwitch(); }
             } else {
-                if (playerLane < 2) playerLane++;
+                if (playerLane < 2) { playerLane++; if (listener != null) listener.onLaneSwitch(); }
             }
             invalidate();
             return true;
