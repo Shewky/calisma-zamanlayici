@@ -345,7 +345,7 @@ public class ParentBackgroundService extends Service implements TextToSpeech.OnI
                             // Öğrenci çağrıyı iptal etti!
                             cancelIncomingOrActiveCall();
                         } else if (msg.startsWith("CZ_BREAK_PHONE_REQ|")) {
-                            String[] parts = msg.split("\|");
+                            String[] parts = msg.split("\\|");
                             if (parts.length >= 3) {
                                 String cid = parts[1];
                                 String cname = parts[2];
