@@ -114,6 +114,8 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
             if (currentPhase == PHASE_BREAK && isPaused) {
                 isPaused = false;
                 StudyDatabaseHelper.clearOneTimeBreakPermissions(TimerForegroundService.this);
+                new StudyDatabaseHelper(TimerForegroundService.this).relockEntertainmentAfterLimit(TimerForegroundService.this);
+                EntertainmentActivity.forceCloseAndLockFromBreakEnd();
                 currentPhase = PHASE_POST_BREAK_PROMPT;
                 remainingSeconds = 0;
                 carriedCycleSeconds = 0;
@@ -130,6 +132,28 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
             }
         }
     };
+
+    private static volatile boolean inEntertainmentScreen = false;
+    private static volatile String activeGameName = "";
+    private static volatile int entertainmentRemainingSeconds = 0;
+
+    public static void setEntertainmentLiveState(boolean inEnt, String gameName, int remainingSec) {
+        inEntertainmentScreen = inEnt;
+        activeGameName = (gameName == null) ? "" : gameName.trim();
+        entertainmentRemainingSeconds = Math.max(0, remainingSec);
+    }
+
+    public static boolean isInEntertainmentScreen() {
+        return inEntertainmentScreen;
+    }
+
+    public static String getActiveGameName() {
+        return activeGameName;
+    }
+
+    public static int getEntertainmentRemainingSeconds() {
+        return entertainmentRemainingSeconds;
+    }
 
     private static volatile boolean anyStudentActivityInForeground = false;
     private static volatile boolean systemSettingsOrInstallerExempt = false;
@@ -453,11 +477,13 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
             if (remainingSeconds == StudyDatabaseHelper.BREAK_WARNING_REMAINING_SECONDS && !breakWarningAnnounced) {
                 breakWarningAnnounced = true;
                 wakeScreenBriefly();
-                announce("Mola bitmek üzere", false);
+                announce("Son 1 dakikan kaldı", false);
             }
 
             if (remainingSeconds <= 0) {
                 StudyDatabaseHelper.clearOneTimeBreakPermissions(TimerForegroundService.this);
+                new StudyDatabaseHelper(TimerForegroundService.this).relockEntertainmentAfterLimit(TimerForegroundService.this);
+                EntertainmentActivity.forceCloseAndLockFromBreakEnd();
                 currentPhase = PHASE_POST_BREAK_PROMPT;
                 remainingSeconds = 0;
                 carriedCycleSeconds = 0;
@@ -465,7 +491,7 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
                 breakWarningAnnounced = false;
 
                 wakeScreenBriefly();
-                announce("Bu dersten mi devam edeceksin", true);
+                announce("Mola süresi doldu. Eğlence bölümü kilitlendi. Bu dersten mi devam edeceksin", true);
                 forceBringStudentAppToFront();
                 bringTimerActivityToFront();
             }

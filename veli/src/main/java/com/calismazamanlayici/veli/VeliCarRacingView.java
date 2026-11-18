@@ -89,9 +89,11 @@ public class VeliCarRacingView extends View {
     private final Runnable loopRunnable = new Runnable() {
         @Override
         public void run() {
-            frameScheduled = false;
             if (running && !gameOver && !levelCleared) {
                 invalidate();
+                postDelayed(this, 16L);
+            } else {
+                frameScheduled = false;
             }
         }
     };
@@ -110,14 +112,32 @@ public class VeliCarRacingView extends View {
     private void scheduleNext() {
         if (!frameScheduled && running && !gameOver && !levelCleared) {
             frameScheduled = true;
+            removeCallbacks(loopRunnable);
             postDelayed(loopRunnable, 16L);
         }
+    }
+
+    @Override
+    protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+        super.onSizeChanged(w, h, oldw, oldh);
+        if (running && !gameOver && !levelCleared) {
+            scheduleNext();
+            invalidate();
+        }
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        stopGame();
+        super.onDetachedFromWindow();
     }
 
     public void startGame() {
         this.level = VeliStorage.getSavedGameLevel(getContext(), "car_race_level", 1);
         setupRaceLevel(this.level);
         running = true;
+        frameScheduled = false;
+        removeCallbacks(loopRunnable);
         scheduleNext();
         invalidate();
     }
@@ -287,7 +307,8 @@ public class VeliCarRacingView extends View {
             drawCountdownOverlay(canvas, w, h, cdStep);
         } else if (levelCleared || gameOver) {
             drawEndModal(canvas, w, h);
-        } else if (running) {
+        }
+        if (running && !gameOver && !levelCleared) {
             scheduleNext();
         }
     }

@@ -476,9 +476,23 @@ public class LanSyncServer {
         obj.put("ip", getLocalIpAddress(service));
 
         int phase = service.getCurrentPhase();
-        obj.put("phase", phase);
+        boolean inEnt = TimerForegroundService.isInEntertainmentScreen();
+        String activeGame = TimerForegroundService.getActiveGameName();
+        int entRemSecs = TimerForegroundService.getEntertainmentRemainingSeconds();
+
+        int reportedPhase = inEnt ? TimerForegroundService.PHASE_BREAK : phase;
+        obj.put("phase", reportedPhase);
+        obj.put("inEntertainment", inEnt);
+        obj.put("activeGame", activeGame);
+
         String phaseText;
-        if (phase == TimerForegroundService.PHASE_STUDY) {
+        if (inEnt) {
+            if (!activeGame.isEmpty()) {
+                phaseText = "☕ Molada • 🎮 Oyun: " + activeGame;
+            } else {
+                phaseText = "☕ Molada • 🎮 Eğlence Bölümünde";
+            }
+        } else if (phase == TimerForegroundService.PHASE_STUDY) {
             phaseText = "📚 Çalışıyor: " + service.getCurrentMode() + " - " + service.getCurrentSubject();
         } else if (phase == TimerForegroundService.PHASE_BREAK) {
             phaseText = "☕ 10 Dakikalık Molada";
@@ -490,10 +504,17 @@ public class LanSyncServer {
             phaseText = "🟢 Çevrimiçi (Beklemede)";
         }
         obj.put("phaseText", phaseText);
-        obj.put("mode", service.getCurrentMode());
-        obj.put("subject", service.getCurrentSubject());
-        obj.put("remainingSeconds", service.getRemainingSeconds());
-        obj.put("remainingFormatted", StudyDatabaseHelper.formatClock(service.getRemainingSeconds()));
+        obj.put("mode", inEnt ? StudyDatabaseHelper.MODE_GAME : service.getCurrentMode());
+        obj.put("subject", (inEnt && !activeGame.isEmpty()) ? activeGame : service.getCurrentSubject());
+
+        int effectiveRemSecs = service.getRemainingSeconds();
+        if (inEnt) {
+            effectiveRemSecs = (phase == TimerForegroundService.PHASE_BREAK)
+                    ? Math.min(service.getRemainingSeconds(), entRemSecs)
+                    : entRemSecs;
+        }
+        obj.put("remainingSeconds", effectiveRemSecs);
+        obj.put("remainingFormatted", StudyDatabaseHelper.formatClock(effectiveRemSecs));
         obj.put("subjectElapsedSeconds", service.getSubjectElapsedSeconds());
         obj.put("subjectElapsedFormatted", StudyDatabaseHelper.formatDurationTr(service.getSubjectElapsedSeconds()));
         obj.put("todayTotalSeconds", db.getTotalSecondsForDate(today));

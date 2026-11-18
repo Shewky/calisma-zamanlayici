@@ -58,8 +58,8 @@ public class StudyDatabaseHelper extends SQLiteOpenHelper {
     public static final int FULL_BREAK_CYCLE_SECONDS = 10 * 60; // 10 Dakika
     public static final int BREAK_WARNING_REMAINING_SECONDS = 60;
 
-    public static final int ENTERTAINMENT_WARNING_SECONDS = 11 * 60; // 11. dakikada pop-up uyarı
-    public static final int ENTERTAINMENT_MAX_LIMIT_SECONDS = 12 * 60; // 12. dakikada otomatik çıkış ve yeniden kilitlenme
+    public static final int ENTERTAINMENT_WARNING_SECONDS = 9 * 60; // 9. dakikada son 1 dakika sesli anons ve uyarı
+    public static final int ENTERTAINMENT_MAX_LIMIT_SECONDS = 10 * 60; // 10. dakikada otomatik çıkış ve eğlence kilidi
 
     public static final String MODE_HOMEWORK = "Ödev";
     public static final String MODE_TEST = "Test Çözümü";

@@ -85,6 +85,7 @@ public class EntertainmentActivity extends Activity {
 
     private boolean inActiveGame = false;
     private int activeGameIndex = 8;
+    private static volatile EntertainmentActivity activeInstance = null;
     private String activeGameTitle = "";
     private int activeGameSessionSeconds = 0;
     private int currentScore = 0;
@@ -369,6 +370,7 @@ public class EntertainmentActivity extends Activity {
             }
 
             updateTimerBannerUi();
+            syncLiveEntertainmentStateToService();
 
             if (totalEntElapsedSeconds >= StudyDatabaseHelper.ENTERTAINMENT_WARNING_SECONDS && !elevenMinWarningShown) {
                 elevenMinWarningShown = true;
@@ -793,7 +795,14 @@ public class EntertainmentActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        activeInstance = this;
         TimerForegroundService.setStudentActivityInForeground(true);
+        totalEntElapsedSeconds = StudyDatabaseHelper.getCurrentEntElapsedSafe(this);
+        if (!dbHelper.isEntertainmentUnlocked(this) || totalEntElapsedSeconds >= StudyDatabaseHelper.ENTERTAINMENT_MAX_LIMIT_SECONDS) {
+            performAutoExitAndRelock();
+            return;
+        }
+        syncLiveEntertainmentStateToService();
         musicSynth.startBackgroundMusic(activeGameIndex);
         timerHandler.removeCallbacks(secondTickRunnable);
         timerHandler.postDelayed(secondTickRunnable, 1000L);
@@ -801,7 +810,11 @@ public class EntertainmentActivity extends Activity {
 
     @Override
     protected void onPause() {
+        if (activeInstance == this) {
+            activeInstance = null;
+        }
         TimerForegroundService.setStudentActivityInForeground(false);
+        TimerForegroundService.setEntertainmentLiveState(false, "", 0);
         timerHandler.removeCallbacks(secondTickRunnable);
         if (jumpGameView != null) jumpGameView.stopGame();
         if (puzzleTowerView != null) puzzleTowerView.stopGame();
@@ -821,18 +834,42 @@ public class EntertainmentActivity extends Activity {
                 + " • Kalan Hak: " + StudyDatabaseHelper.formatClock(remainingToRelock));
     }
 
+    private void syncLiveEntertainmentStateToService() {
+        int remainingToRelock = Math.max(0, StudyDatabaseHelper.ENTERTAINMENT_MAX_LIMIT_SECONDS - totalEntElapsedSeconds);
+        String gameName = (inActiveGame && activeGameTitle != null) ? activeGameTitle : "";
+        TimerForegroundService.setEntertainmentLiveState(true, gameName, remainingToRelock);
+    }
+
+    public static void forceCloseAndLockFromBreakEnd() {
+        final EntertainmentActivity inst = activeInstance;
+        if (inst != null && !inst.isFinishing()) {
+            inst.runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    if (!inst.isFinishing()) {
+                        inst.performAutoExitAndRelock();
+                    }
+                }
+            });
+        }
+    }
+
     private void showElevenMinuteWarningPopup() {
-        speakViaService("Normal mola süresinden daha uzun zaman harcadın. 1 dakika sonra otomatik çıkış yapılacak");
+        speakViaService("Son 1 dakikan kaldı");
         if (!isFinishing()) {
             new AlertDialog.Builder(this)
-                    .setTitle("⏰ Eğlence Süresi Uyarısı")
-                    .setMessage("Normal mola süresinden daha uzun zaman harcadın. 1 dakika sonra otomatik çıkış yapılacak")
+                    .setTitle("⏰ Son 1 Dakikan Kaldı")
+                    .setMessage("Mola sürenin bitmesine son 1 dakikan kaldı. 1 dakika sonra eğlence bölümü kilitlenecek.")
                     .setPositiveButton("Tamam", null)
                     .show();
         }
     }
 
     private void performAutoExitAndRelock() {
+        if (activeInstance == this) {
+            activeInstance = null;
+        }
+        TimerForegroundService.setEntertainmentLiveState(false, "", 0);
         timerHandler.removeCallbacks(secondTickRunnable);
         if (jumpGameView != null) jumpGameView.stopGame();
         if (puzzleTowerView != null) puzzleTowerView.stopGame();
@@ -843,9 +880,9 @@ public class EntertainmentActivity extends Activity {
         saveActiveGameSessionToCalendarIfNeeded();
 
         dbHelper.relockEntertainmentAfterLimit(this);
-        speakViaService("Eğlence süresi tamamlandı. Tekrar açmak için kırk dakika çalışma yapmalısın.");
+        speakViaService("Mola süren doldu, eğlence bölümü kilitlendi. Tekrar açmak için kırk dakika çalışma yapmalısın.");
         Toast.makeText(this,
-                "🔒 Eğlence süresi doldu ve yeniden kilitlendi! Açmak için 40 dakika daha çalışma yapmalısın.",
+                "🔒 10 dakikalık mola süresi doldu ve eğlence bölümü kilitlendi! Açmak için 40 dakika daha çalışma yapmalısın.",
                 Toast.LENGTH_LONG).show();
         finish();
     }
@@ -960,6 +997,8 @@ public class EntertainmentActivity extends Activity {
 
     private void showLobbyScreen() {
         inActiveGame = false;
+        activeGameTitle = "";
+        syncLiveEntertainmentStateToService();
         setFullScreenJumpMode(false);
         if (starEffectView != null) {
             starEffectView.setSceneState(0, 0, 1, false);
@@ -985,6 +1024,7 @@ public class EntertainmentActivity extends Activity {
         activeGameIndex = game.index;
         activeGameTitle = game.gameTitle;
         activeGameSessionSeconds = 0;
+        syncLiveEntertainmentStateToService();
         currentScore = 0;
         currentStreak = 0;
         bestStreak = 0;
