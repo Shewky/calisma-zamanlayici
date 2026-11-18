@@ -345,6 +345,7 @@ public class VeliGitHubUpdater {
                     String entered = etRepo.getText().toString().trim();
                     entered = entered.replace("https://github.com/", "").replaceAll("/$", "");
                     VeliStorage.setGitHubRepo(activity, entered);
+                    VeliBackupManager.saveVeliBackupAsync(activity);
                     Toast.makeText(activity, "GitHub deposu kaydedildi: " + entered, Toast.LENGTH_SHORT).show();
                     checkUpdates(activity, true);
                 })

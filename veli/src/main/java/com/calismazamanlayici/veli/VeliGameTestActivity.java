@@ -59,6 +59,7 @@ public class VeliGameTestActivity extends Activity {
     private FrameLayout frameJumpGameCanvas;
     private Button btnJumpAction;
     private Button btnBackFromJumpGame;
+    private VeliPuzzleTowerView puzzleTowerView;
     private VeliPlatformerJumpView jumpGameView;
 
     private TextView tvActiveGameTitle;
@@ -106,13 +107,19 @@ public class VeliGameTestActivity extends Activity {
         public final String subtitle;
         public final int accentColor;
         public final boolean isPlatformerJump;
+        public final boolean isPuzzleTower;
 
         public GameDefinition(int index, String gameTitle, String subtitle, int accentColor, boolean isPlatformerJump) {
+            this(index, gameTitle, subtitle, accentColor, isPlatformerJump, false);
+        }
+
+        public GameDefinition(int index, String gameTitle, String subtitle, int accentColor, boolean isPlatformerJump, boolean isPuzzleTower) {
             this.index = index;
             this.gameTitle = gameTitle;
             this.subtitle = subtitle;
             this.accentColor = accentColor;
             this.isPlatformerJump = isPlatformerJump;
+            this.isPuzzleTower = isPuzzleTower;
         }
     }
 
@@ -156,6 +163,12 @@ public class VeliGameTestActivity extends Activity {
         private int difficultyTier = 1;
         private float tick = 0f;
         private boolean sceneActive = false;
+        private int countdownValue = 0; // 3, 2, 1, -1(BAŞLA!), 0(Kapalı)
+
+        public void setCountdownValue(int val) {
+            this.countdownValue = val;
+            invalidate();
+        }
 
         public StarBurstEffectView(Context context) {
             super(context);
@@ -315,6 +328,25 @@ public class VeliGameTestActivity extends Activity {
                 }
             }
 
+            if (countdownValue != 0) {
+                paint.setColor(0xDD0F172A);
+                canvas.drawRoundRect(new RectF(0, 0, w, h), 22f, 22f, paint);
+                paint.setTextAlign(Paint.Align.CENTER);
+                paint.setFakeBoldText(true);
+                if (countdownValue > 0) {
+                    paint.setColor(0xFFFFD600);
+                    paint.setTextSize(54f * sp);
+                    canvas.drawText(String.valueOf(countdownValue), w * 0.5f, h * 0.56f, paint);
+                    paint.setColor(0xFFE2E8F0);
+                    paint.setTextSize(13.5f * sp);
+                    canvas.drawText("Hazır Ol! Macera Başlıyor...", w * 0.5f, h * 0.84f, paint);
+                } else {
+                    paint.setColor(0xFF00E676);
+                    paint.setTextSize(38f * sp);
+                    canvas.drawText("BAŞLA! 🚀", w * 0.5f, h * 0.58f, paint);
+                }
+            }
+
             if (sceneActive) {
                 postInvalidateDelayed(30L);
             }
@@ -411,6 +443,7 @@ public class VeliGameTestActivity extends Activity {
             @Override
             public void onExitRequested() {
                 if (jumpGameView != null) jumpGameView.stopGame();
+        if (puzzleTowerView != null) puzzleTowerView.stopGame();
                 saveActiveGameSessionToCalendarIfNeeded();
                 showLobbyScreen();
             }
@@ -423,6 +456,31 @@ public class VeliGameTestActivity extends Activity {
             }
         });
         frameJumpGameCanvas.addView(jumpGameView);
+
+        puzzleTowerView = new VeliPuzzleTowerView(this, new VeliPuzzleTowerView.PuzzleTowerListener() {
+            @Override
+            public void onTowerActionSound(boolean success) {
+                if (success) {
+                    musicSynth.playCoinEffect();
+                } else {
+                    musicSynth.playWrongEffect();
+                }
+            }
+
+            @Override
+            public void onCountdownTick(boolean isGo) {
+                musicSynth.playCountdownTick(isGo);
+            }
+
+            @Override
+            public void onExitRequested() {
+                if (puzzleTowerView != null) puzzleTowerView.stopGame();
+                saveActiveGameSessionToCalendarIfNeeded();
+                showLobbyScreen();
+            }
+        });
+        puzzleTowerView.setVisibility(View.GONE);
+        frameJumpGameCanvas.addView(puzzleTowerView);
 
         VeliThemeHelper.Palette p = VeliThemeHelper.getPalette(this);
         VeliThemeHelper.applyWindowAndSurface(this, scrollRootEntertainment);
@@ -486,6 +544,7 @@ public class VeliGameTestActivity extends Activity {
 
         btnBackFromJumpGame.setOnClickListener(v -> {
             if (jumpGameView != null) jumpGameView.stopGame();
+        if (puzzleTowerView != null) puzzleTowerView.stopGame();
             saveActiveGameSessionToCalendarIfNeeded();
             showLobbyScreen();
         });
@@ -497,6 +556,7 @@ public class VeliGameTestActivity extends Activity {
 
         btnExitEntertainment.setOnClickListener(v -> {
             if (jumpGameView != null) jumpGameView.stopGame();
+        if (puzzleTowerView != null) puzzleTowerView.stopGame();
             saveActiveGameSessionToCalendarIfNeeded();
             finish();
         });
@@ -678,6 +738,7 @@ public class VeliGameTestActivity extends Activity {
     protected void onPause() {
         timerHandler.removeCallbacks(secondTickRunnable);
         if (jumpGameView != null) jumpGameView.stopGame();
+        if (puzzleTowerView != null) puzzleTowerView.stopGame();
         if (starEffectView != null) starEffectView.setSceneState(activeGameIndex, questionsSolvedInSession, getCurrentDifficultyTier(), false);
         musicSynth.stopBackgroundMusic();
         saveActiveGameSessionToCalendarIfNeeded();
@@ -702,8 +763,11 @@ public class VeliGameTestActivity extends Activity {
     public static List<GameDefinition> buildAllGamesList(int grade, int customSubjectCount) {
         List<GameDefinition> games = new ArrayList<>();
         games.add(new GameDefinition(8, "🏃‍♂️ Süper Yıldız Zıplama Macerası",
-                "Tam ekran 6 farklı parkurda 3-2-1 geri sayımla başla, trambolinlerle uç ve yıldızları topla!",
-                0xFFFF5722, true));
+                "Tam ekran 6 parkurda 3-2-1 geri sayımla başla, ⚡ lazer biriktirip sol lazer butonuyla düşmanları yen!",
+                0xFFFF5722, true, false));
+        games.add(new GameDefinition(1, "🏰 Bulmaca Kulesi",
+                "20 katlı sihirli kulede Bilge Baykuş Puhu ile dişli, boru, ayna ve yıldız bulmacalarını çöz, Büyük Kristali kurtar!",
+                0xFF7C3AED, false, true));
 
         games.add(new GameDefinition(0, "🚀 Galaksi Sayı Avcısı",
                 grade + ". Sınıf uzay gemisiyle kolaydan zora hedefleri vur ve meteorları parçala!", 0xFF1E88E5, false));
@@ -764,7 +828,7 @@ public class VeliGameTestActivity extends Activity {
 
             Button btnPlay = new Button(this);
             btnPlay.setBackground(VeliThemeHelper.createButtonDrawable(this, g.accentColor));
-            btnPlay.setText(g.isPlatformerJump ? "🏃‍♂️ Tam Ekran Zıplama Macerasını Başlat" : "▶️ Canlı Maceraya Başla");
+            btnPlay.setText("Maceraya Başla");
             btnPlay.setAllCaps(false);
             btnPlay.setTextColor(0xFFFFFFFF);
             btnPlay.setTextSize(15f);
@@ -819,8 +883,23 @@ public class VeliGameTestActivity extends Activity {
             layoutActiveGameArena.setVisibility(View.GONE);
             layoutPlatformerJumpArena.setVisibility(View.VISIBLE);
             setFullScreenJumpMode(true);
+            if (puzzleTowerView != null) {
+                puzzleTowerView.stopGame();
+                puzzleTowerView.setVisibility(View.GONE);
+            }
+            jumpGameView.setVisibility(View.VISIBLE);
             jumpGameView.resetGame();
             jumpGameView.startGame();
+        } else if (game.isPuzzleTower) {
+            layoutActiveGameArena.setVisibility(View.GONE);
+            layoutPlatformerJumpArena.setVisibility(View.VISIBLE);
+            setFullScreenJumpMode(true);
+            if (jumpGameView != null) {
+                jumpGameView.stopGame();
+                jumpGameView.setVisibility(View.GONE);
+            }
+            puzzleTowerView.setVisibility(View.VISIBLE);
+            puzzleTowerView.startGame();
         } else {
             setFullScreenJumpMode(false);
             layoutPlatformerJumpArena.setVisibility(View.GONE);
@@ -829,8 +908,41 @@ public class VeliGameTestActivity extends Activity {
             tvGameFeedbackBanner.setText("");
             updateStatsBar();
             updateJokerButtonsUi();
-            loadNextQuestion();
+            startQuizGameWithCountdown();
         }
+    }
+
+    private void startQuizGameWithCountdown() {
+        layoutGameOptionButtons.removeAllViews();
+        tvGameQuestionPrompt.setText("⏳ 3 - 2 - 1 Hazır Ol!");
+        if (starEffectView != null) {
+            starEffectView.setCountdownValue(3);
+        }
+        musicSynth.playCountdownTick(false);
+
+        timerHandler.postDelayed(() -> {
+            if (!inActiveGame) return;
+            if (starEffectView != null) starEffectView.setCountdownValue(2);
+            musicSynth.playCountdownTick(false);
+        }, 750L);
+
+        timerHandler.postDelayed(() -> {
+            if (!inActiveGame) return;
+            if (starEffectView != null) starEffectView.setCountdownValue(1);
+            musicSynth.playCountdownTick(false);
+        }, 1500L);
+
+        timerHandler.postDelayed(() -> {
+            if (!inActiveGame) return;
+            if (starEffectView != null) starEffectView.setCountdownValue(-1);
+            musicSynth.playCountdownTick(true);
+        }, 2250L);
+
+        timerHandler.postDelayed(() -> {
+            if (!inActiveGame) return;
+            if (starEffectView != null) starEffectView.setCountdownValue(0);
+            loadNextQuestion();
+        }, 2750L);
     }
 
     private void updateStatsBar() {

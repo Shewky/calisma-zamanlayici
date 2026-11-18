@@ -185,6 +185,17 @@ public class BackupManager {
         }).start();
     }
 
+    public static String peekGitHubRepoFromLocalBackup() {
+        try {
+            JSONObject obj = readLocalBackupFile();
+            if (obj != null) {
+                return obj.optString("githubRepo", "");
+            }
+        } catch (Exception ignored) {
+        }
+        return "";
+    }
+
     private static JSONObject readLocalBackupFile() {
         for (File f : getCandidateBackupFiles()) {
             try {

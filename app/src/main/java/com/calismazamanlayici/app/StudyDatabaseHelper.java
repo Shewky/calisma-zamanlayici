@@ -667,6 +667,7 @@ public class StudyDatabaseHelper extends SQLiteOpenHelper {
         root.put("anneIp", getPairedParentIp(context, "ANNE"));
         root.put("babaIp", getPairedParentIp(context, "BABA"));
         root.put("carriedCycleSeconds", getCarriedCycleSeconds(context));
+        root.put("githubRepo", getGitHubRepo(context));
 
         JSONObject gradesObj = new JSONObject();
         SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
@@ -714,6 +715,10 @@ public class StudyDatabaseHelper extends SQLiteOpenHelper {
         ed.putString(KEY_THEME_COLOR, themeKey);
         if (!anneIp.isEmpty()) ed.putString(KEY_PARENT_IP_PREFIX + "ANNE", anneIp);
         if (!babaIp.isEmpty()) ed.putString(KEY_PARENT_IP_PREFIX + "BABA", babaIp);
+        String backedRepo = root.optString("githubRepo", "");
+        if (!backedRepo.isEmpty() && !backedRepo.equals("kullanici/calisma-zamanlayici")) {
+            ed.putString(KEY_GITHUB_REPO, backedRepo);
+        }
         int backedCarried = root.optInt("carriedCycleSeconds", 0);
         if (backedCarried > 0 && backedCarried < FULL_STUDY_CYCLE_SECONDS) {
             ed.putString(KEY_CARRIED_DATE, getTodayDateString());

@@ -107,6 +107,28 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
 
     private long lastTickRealtimeMs = 0L;
 
+    private static final long MAX_BREAK_PAUSE_DURATION_MS = 3 * 60 * 1000L; // 3 dakika duraklatılmış mola sınırı
+    private final Runnable longPausedBreakWatchdog = new Runnable() {
+        @Override
+        public void run() {
+            if (currentPhase == PHASE_BREAK && isPaused) {
+                isPaused = false;
+                currentPhase = PHASE_POST_BREAK_PROMPT;
+                remainingSeconds = 0;
+                carriedCycleSeconds = 0;
+                StudyDatabaseHelper.resetCarriedCycleSeconds(TimerForegroundService.this);
+                breakWarningAnnounced = false;
+
+                wakeScreenBriefly();
+                String msg = "Mola süresi uzun süre duraklatıldı, Mola sona erdi";
+                announce(msg, true);
+                Toast.makeText(TimerForegroundService.this, "⏰ " + msg + "! Hadi derse dönelim.", Toast.LENGTH_LONG).show();
+                updateForegroundNotification();
+                bringTimerActivityToFront();
+            }
+        }
+    };
+
     public class LocalBinder extends Binder {
         public TimerForegroundService getService() {
             return TimerForegroundService.this;
@@ -272,6 +294,7 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
 
     private void prepareSubjectSession(String mode, String subject) {
         handler.removeCallbacks(tickRunnable);
+        handler.removeCallbacks(longPausedBreakWatchdog);
         if (mode != null) currentMode = mode;
         if (subject != null) currentSubject = subject;
 
@@ -311,12 +334,14 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
         updateForegroundNotification();
 
         handler.removeCallbacks(tickRunnable);
+        handler.removeCallbacks(longPausedBreakWatchdog);
         lastTickRealtimeMs = SystemClock.elapsedRealtime();
         handler.postDelayed(tickRunnable, 1000L);
     }
 
     private void startBookReadingSession(String bookTitle) {
         handler.removeCallbacks(tickRunnable);
+        handler.removeCallbacks(longPausedBreakWatchdog);
         currentMode = StudyDatabaseHelper.MODE_BOOK;
         currentSubject = (bookTitle != null && !bookTitle.trim().isEmpty()) ? bookTitle.trim() : "Kitap";
 
@@ -403,6 +428,7 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
         updateForegroundNotification();
 
         handler.removeCallbacks(tickRunnable);
+        handler.removeCallbacks(longPausedBreakWatchdog);
         lastTickRealtimeMs = SystemClock.elapsedRealtime();
         handler.postDelayed(tickRunnable, 1000L);
     }
@@ -419,19 +445,26 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
     public void togglePauseResume() {
         if (currentPhase != PHASE_STUDY && currentPhase != PHASE_BREAK) return;
         isPaused = !isPaused;
+        handler.removeCallbacks(longPausedBreakWatchdog);
         if (!isPaused) {
             lastTickRealtimeMs = SystemClock.elapsedRealtime();
             handler.removeCallbacks(tickRunnable);
+        handler.removeCallbacks(longPausedBreakWatchdog);
             handler.postDelayed(tickRunnable, 1000L);
         } else {
             handler.removeCallbacks(tickRunnable);
+        handler.removeCallbacks(longPausedBreakWatchdog);
             StudyDatabaseHelper.setCarriedCycleSeconds(this, carriedCycleSeconds);
+            if (currentPhase == PHASE_BREAK) {
+                handler.postDelayed(longPausedBreakWatchdog, MAX_BREAK_PAUSE_DURATION_MS);
+            }
         }
         updateForegroundNotification();
     }
 
     public void finishCurrentSubjectAndSave() {
         handler.removeCallbacks(tickRunnable);
+        handler.removeCallbacks(longPausedBreakWatchdog);
 
         if (subjectElapsedSeconds > 0) {
             StudyDatabaseHelper db = new StudyDatabaseHelper(this);
@@ -463,6 +496,7 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
 
     public void cancelCurrentSession() {
         handler.removeCallbacks(tickRunnable);
+        handler.removeCallbacks(longPausedBreakWatchdog);
         if (currentPhase == PHASE_STUDY) {
             StudyDatabaseHelper.setCarriedCycleSeconds(this, carriedCycleSeconds);
         }
@@ -648,6 +682,7 @@ public class TimerForegroundService extends Service implements TextToSpeech.OnIn
     @Override
     public void onDestroy() {
         handler.removeCallbacks(tickRunnable);
+        handler.removeCallbacks(longPausedBreakWatchdog);
         try {
             unregisterReceiver(batteryReceiver);
         } catch (Exception ignored) {

@@ -192,8 +192,21 @@ public class GitHubUpdater {
         throw new Exception("Çok fazla yönlendirme.");
     }
 
+    private static String resolveEffectiveRepo(Context context) {
+        String repo = StudyDatabaseHelper.getGitHubRepo(context);
+        if (repo != null && !repo.isEmpty() && !repo.equals("kullanici/calisma-zamanlayici")) {
+            return repo;
+        }
+        String fromBackup = BackupManager.peekGitHubRepoFromLocalBackup();
+        if (fromBackup != null && !fromBackup.isEmpty() && !fromBackup.equals("kullanici/calisma-zamanlayici")) {
+            StudyDatabaseHelper.setGitHubRepo(context, fromBackup);
+            return fromBackup;
+        }
+        return repo;
+    }
+
     public static void checkUpdates(final Activity activity, final boolean showNoUpdateToast) {
-        final String repo = StudyDatabaseHelper.getGitHubRepo(activity);
+        final String repo = resolveEffectiveRepo(activity);
         if (repo == null || repo.isEmpty() || repo.equals("kullanici/calisma-zamanlayici")) {
             if (showNoUpdateToast) {
                 showConfigureRepoDialog(activity);
@@ -345,6 +358,7 @@ public class GitHubUpdater {
                     String entered = etRepo.getText().toString().trim();
                     entered = entered.replace("https://github.com/", "").replaceAll("/$", "");
                     StudyDatabaseHelper.setGitHubRepo(activity, entered);
+                    BackupManager.saveStudentBackupAsync(activity);
                     Toast.makeText(activity, "GitHub deposu kaydedildi: " + entered, Toast.LENGTH_SHORT).show();
                     checkUpdates(activity, true);
                 })
