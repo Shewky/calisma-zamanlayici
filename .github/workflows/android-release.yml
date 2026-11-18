@@ -71,13 +71,7 @@ jobs:
         with:
           tag_name: v4.0.${{ github.run_number }}
           name: "Çalışma Zamanlayıcı & Veli Uygulaması v4.0.${{ github.run_number }}"
-          body: |
-            🚀 **Çalışma Zamanlayıcı (Öğrenci) & Veli Takip Uygulaması - Otomatik Güncelleme Paketi**
-            - **Sürüm:** `v4.0.${{ github.run_number }}`
-            - **Öğrenci APK:** `CalismaZamanlayici.apk`
-            - **Veli APK:** `CalismaZamanlayiciVeli.apk`
-            - **Minimum Android Sürümü:** Android 6.0 (API 23) ve üzeri
-            - Sabit imza (`release-key.jks`) ile imzalanmıştır; her iki uygulama da kendi güncellemelerini GitHub üzerinden otomatik bulup verileri silmeden üzerine kurar.
+          body_path: RELEASE_NOTES.md
           files: |
             app/build/outputs/apk/release/CalismaZamanlayici.apk
             veli/build/outputs/apk/release/CalismaZamanlayiciVeli.apk
