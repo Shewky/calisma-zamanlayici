@@ -633,4 +633,36 @@ public class VeliGameMusicSynthesizer {
             }
         }).start();
     }
+
+    private void playOneShotPcm(short[] buf) {
+        if (buf == null || buf.length == 0) return;
+        AudioTrack track = null;
+        try {
+            int minBuf = AudioTrack.getMinBufferSize(
+                    SAMPLE_RATE,
+                    AudioFormat.CHANNEL_OUT_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT
+            );
+            track = new AudioTrack(
+                    AudioManager.STREAM_MUSIC,
+                    SAMPLE_RATE,
+                    AudioFormat.CHANNEL_OUT_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT,
+                    Math.max(minBuf, buf.length * 2),
+                    AudioTrack.MODE_STATIC
+            );
+            track.write(buf, 0, buf.length);
+            track.play();
+            Thread.sleep((buf.length * 1000L) / SAMPLE_RATE + 40L);
+        } catch (Exception ignored) {
+        } finally {
+            if (track != null) {
+                try {
+                    track.stop();
+                    track.release();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+    }
 }
